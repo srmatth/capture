@@ -145,11 +145,14 @@ def compose_digest(now: datetime | None = None) -> tuple[str, dict]:
 
 
 def push_ntfy(body: str) -> None:
+    # NB: HTTP headers must be ASCII-safe. httpx enforces this and will
+    # UnicodeEncodeError on any character above U+007F. The body itself
+    # goes as UTF-8 bytes and can hold anything.
     resp = httpx.post(
         NTFY_URL,
         content=body.encode("utf-8"),
         headers={
-            "Title": "Capture — weekly review",
+            "Title": "Capture - weekly review",
             "Priority": "default",
             "Tags": "clipboard",
         },
