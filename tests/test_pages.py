@@ -121,3 +121,39 @@ def test_item_detail(tmp_data_root: Path) -> None:
 def test_item_detail_404(tmp_data_root: Path) -> None:
     r = _client().get("/item/does-not-exist")
     assert r.status_code == 404
+
+
+# ---------- unified nav ----------
+#
+# The header nav on EVERY page must expose all four sections (upload,
+# search, browse, inbox). Both landing pages should be one nav click
+# away regardless of the current subdomain, so a phone bookmarked only
+# to capture.matthewshome never gets stuck.
+
+
+@pytest.mark.parametrize("url,expected_active", [
+    ("/upload", "Upload"),
+    ("/search", "Search"),
+    ("/browse", "Browse"),
+    ("/inbox", "Inbox"),
+])
+def test_nav_present_and_active_on_every_page(
+    tmp_data_root: Path, url: str, expected_active: str
+) -> None:
+    r = _client().get(url)
+    assert r.status_code == 200
+    # All four nav destinations appear on every page.
+    for link in ("/upload", "/search", "/browse", "/inbox"):
+        assert f'href="{link}"' in r.text, f"{link} missing from {url}"
+    # The current page's nav link carries class="active".
+    assert 'class="active"' in r.text, f"no active nav marker on {url}"
+
+
+def test_upload_route_serves_pwa(tmp_data_root: Path) -> None:
+    """/upload must serve the upload PWA on any host — the search
+    subdomain needs this path to work so its nav link isn't a dead
+    end."""
+    for host in ("capture.matthewshome", "search.matthewshome"):
+        r = _client().get("/upload", headers={"host": host})
+        assert r.status_code == 200, f"{host}"
+        assert "capture-btn" in r.text or "Scan document" in r.text

@@ -34,16 +34,24 @@ app.include_router(review.router)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
+@app.get("/upload", response_class=HTMLResponse)
+async def upload_page(request: Request) -> HTMLResponse:
+    """The upload PWA. Reachable at /upload on any host so the nav links
+    work whether you're on capture.matthewshome or search.matthewshome."""
+    return TEMPLATES.TemplateResponse(request, "index.html")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
-    """Root behavior depends on the Host header:
-    - search.matthewshome → search landing (mirror of /search)
-    - anything else       → capture upload PWA
-    """
+    """Root behavior depends on the Host header — this is what the
+    home-screen icon and typed-hostname URLs land on:
+      - search.matthewshome → search landing (mirror of /search)
+      - anything else       → capture upload PWA
+    Both landing pages are also reachable at their explicit routes
+    (/search, /upload) from the header nav, so the "wrong" subdomain
+    is never a dead end — one nav click gets you either way."""
     host = (request.headers.get("host") or "").lower().split(":")[0]
     if host.startswith("search."):
-        # Reuse the search router's landing handler so we don't
-        # duplicate template context.
         return await search.search_landing(request, q="")
     return TEMPLATES.TemplateResponse(request, "index.html")
 

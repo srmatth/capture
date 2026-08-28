@@ -3,17 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Capture">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/icon-180.png">
+  {% block head_extra %}{% endblock %}
   <link rel="stylesheet" href="/static/style.css">
   <title>{% block title %}Capture{% endblock %}</title>
 </head>
 <body>
   <header>
-    <h1><a href="/">{% block header %}Capture{% endblock %}</a></h1>
+    <h1><a href="/upload">{% block header %}Capture{% endblock %}</a></h1>
     <nav>
-      <a href="/">Home</a> ·
-      <a href="/search">Search</a> ·
-      <a href="/browse">Browse</a> ·
-      <a href="/inbox">Inbox</a>
+      {# active_nav is set by each page template so the current tab is highlighted #}
+      {% set nav = active_nav|default('') %}
+      <a href="/upload" {% if nav == 'upload' %}class="active"{% endif %}>Upload</a> ·
+      <a href="/search" {% if nav == 'search' %}class="active"{% endif %}>Search</a> ·
+      <a href="/browse" {% if nav == 'browse' %}class="active"{% endif %}>Browse</a> ·
+      <a href="/inbox" {% if nav == 'inbox' %}class="active"{% endif %}>Inbox</a>
     </nav>
   </header>
   <main>{% block content %}{% endblock %}</main>

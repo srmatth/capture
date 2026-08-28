@@ -1,78 +1,65 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Capture">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <link rel="manifest" href="/static/manifest.webmanifest">
-  <link rel="apple-touch-icon" href="/static/icon-180.png">
+{% extends "_base.html" %}
+{% set active_nav = 'upload' %}
+{% block title %}Upload — Capture{% endblock %}
+{% block header %}Capture{% endblock %}
+{% block head_extra %}
   <link rel="stylesheet" href="/static/cropper.min.css">
-  <link rel="stylesheet" href="/static/style.css">
-  <title>Capture</title>
-</head>
-<body>
-  <header>
-    <h1>Capture</h1>
-    <nav><a href="/inbox">Inbox</a> · <a href="/recent">Recent</a></nav>
-  </header>
+{% endblock %}
+{% block content %}
 
-  <main>
-    <div class="capture-buttons">
-      <label class="capture-btn scan">
-        <span>📷 Scan document</span>
-        <input type="file" data-flow="single" accept="image/*" capture="environment" hidden>
-      </label>
+<div class="capture-buttons">
+  <label class="capture-btn scan">
+    <span>📷 Scan document</span>
+    <input type="file" data-flow="single" accept="image/*" capture="environment" hidden>
+  </label>
 
-      <label class="capture-btn photo">
-        <span>🖼️ Upload photo</span>
-        <input type="file" data-flow="single" accept="image/*" hidden>
-      </label>
+  <label class="capture-btn photo">
+    <span>🖼️ Upload photo</span>
+    <input type="file" data-flow="single" accept="image/*" hidden>
+  </label>
 
-      <label class="capture-btn scan-batch">
-        <span>📚 Multi-page scan</span>
-        <input type="file" data-flow="batch-add" accept="image/*" capture="environment" hidden>
-      </label>
+  <label class="capture-btn scan-batch">
+    <span>📚 Multi-page scan</span>
+    <input type="file" data-flow="batch-add" accept="image/*" capture="environment" hidden>
+  </label>
 
-      <label class="capture-btn audio">
-        <span>🎤 Record voice memo</span>
-        <input type="file" data-flow="direct" accept="audio/*" capture hidden>
-      </label>
+  <label class="capture-btn audio">
+    <span>🎤 Record voice memo</span>
+    <input type="file" data-flow="direct" accept="audio/*" capture hidden>
+  </label>
 
-      <label class="capture-btn upload">
-        <span>📎 Upload existing file</span>
-        <input type="file" data-flow="direct"
-               accept="audio/*,image/*,application/pdf,text/plain" hidden>
-      </label>
-    </div>
+  <label class="capture-btn upload">
+    <span>📎 Upload existing file</span>
+    <input type="file" data-flow="direct"
+           accept="audio/*,image/*,application/pdf,text/plain" hidden>
+  </label>
+</div>
 
-    <textarea id="note" placeholder="Optional context (e.g., 'journal page from today')"></textarea>
+<textarea id="note" placeholder="Optional context (e.g., 'journal page from today')"></textarea>
 
-    <section id="cropStage" hidden>
-      <div class="cropper-frame"><img id="cropImage" alt=""></div>
-      <div class="crop-actions">
-        <button type="button" id="cropCancel">Cancel</button>
-        <button type="button" id="cropRotate">Rotate</button>
-        <button type="button" id="cropReset">Reset</button>
-        <button type="button" id="cropAccept" class="primary">Use</button>
-      </div>
-    </section>
+<section id="cropStage" hidden>
+  <div class="cropper-frame"><img id="cropImage" alt=""></div>
+  <div class="crop-actions">
+    <button type="button" id="cropCancel">Cancel</button>
+    <button type="button" id="cropRotate">Rotate</button>
+    <button type="button" id="cropReset">Reset</button>
+    <button type="button" id="cropAccept" class="primary">Use</button>
+  </div>
+</section>
 
-    <section id="batchTray" hidden>
-      <h2>Pages so far</h2>
-      <ol id="batchThumbs"></ol>
-      <div class="batch-actions">
-        <button type="button" id="batchCancel">Discard batch</button>
-        <button type="button" id="batchAddMore">+ Another page</button>
-        <button type="button" id="batchSubmit" class="primary">Submit</button>
-      </div>
-    </section>
-  </main>
+<section id="batchTray" hidden>
+  <h2>Pages so far</h2>
+  <ol id="batchThumbs"></ol>
+  <div class="batch-actions">
+    <button type="button" id="batchCancel">Discard batch</button>
+    <button type="button" id="batchAddMore">+ Another page</button>
+    <button type="button" id="batchSubmit" class="primary">Submit</button>
+  </div>
+</section>
 
-  <div id="status" role="status" aria-live="polite"></div>
+<div id="status" role="status" aria-live="polite"></div>
 
-  <script src="/static/cropper.min.js"></script>
-  <script src="/static/upload.js"></script>
-</body>
-</html>
+<script src="/static/cropper.min.js"></script>
+<script src="/static/upload.js"></script>
+
+{% endblock %}
