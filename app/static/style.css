@@ -1,0 +1,87 @@
+:root {
+  --bg: #ffffff;
+  --fg: #111827;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --accent: #2563eb;
+  --danger: #dc2626;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1220;
+    --fg: #f3f4f6;
+    --muted: #9ca3af;
+    --border: #1f2937;
+    --accent: #60a5fa;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+header {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+header h1 { margin: 0 0 .25rem; font-size: 1.25rem; }
+nav a { color: var(--muted); text-decoration: none; margin-right: 1rem; }
+nav a:hover { color: var(--fg); }
+
+main { padding: 1rem; max-width: 560px; margin: 0 auto; }
+
+.capture-buttons {
+  display: grid; gap: .75rem; margin-bottom: 1rem;
+}
+.capture-btn {
+  display: block; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius);
+  background: transparent; font-size: 1rem; cursor: pointer;
+  text-align: left; user-select: none;
+}
+.capture-btn:active { background: var(--border); }
+
+#note {
+  width: 100%; min-height: 3rem; padding: .5rem;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: transparent; color: var(--fg); font: inherit;
+}
+
+#cropStage { margin-top: 1rem; }
+.cropper-frame { max-height: 60vh; overflow: hidden; border-radius: var(--radius); }
+.crop-actions, .batch-actions {
+  display: flex; gap: .5rem; margin-top: .5rem; flex-wrap: wrap;
+}
+.crop-actions button, .batch-actions button {
+  flex: 1; padding: .75rem; border: 1px solid var(--border); border-radius: var(--radius);
+  background: transparent; color: var(--fg); font: inherit; cursor: pointer;
+}
+.crop-actions button.primary, .batch-actions button.primary {
+  background: var(--accent); color: white; border-color: var(--accent);
+}
+
+#batchTray { margin-top: 1rem; }
+#batchThumbs {
+  list-style: none; padding: 0; margin: 0 0 .5rem;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: .5rem;
+}
+#batchThumbs li {
+  position: relative; aspect-ratio: 1;
+  border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+}
+#batchThumbs img { width: 100%; height: 100%; object-fit: cover; }
+#batchThumbs button {
+  position: absolute; top: 2px; right: 2px;
+  width: 22px; height: 22px; border-radius: 50%;
+  border: none; background: rgba(0,0,0,.6); color: white; cursor: pointer;
+}
+
+#status {
+  padding: 1rem; text-align: center; color: var(--muted); min-height: 3rem;
+}
+#status strong, #status code { color: var(--fg); }
