@@ -3,6 +3,7 @@ FROM python:3.12-slim
 # OS-level tools the workers shell out to.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       tesseract-ocr tesseract-ocr-eng ocrmypdf ghostscript poppler-utils \
+      ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # uv gives us reproducible builds via uv.lock. Baked in so the container

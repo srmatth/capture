@@ -93,6 +93,9 @@ def test_audio_routes_to_whisper(worker_env, tmp_data_root: Path) -> None:
 
     transcribe.process_one(item_id)
 
+    # transcribe_audio is monkeypatched — it should receive the source
+    # path (the shim to convert m4a -> wav is exercised in a separate
+    # test below where we don't stub the whole function).
     assert calls["whisper"] == [src.name]
     from app.db import get_item
     row = get_item(item_id)
@@ -102,6 +105,53 @@ def test_audio_routes_to_whisper(worker_env, tmp_data_root: Path) -> None:
 
     # Handoff marker exists.
     assert (tmp_data_root / "queue" / "classify" / item_id).exists()
+
+
+def test_to_whisper_wav_noop_for_native_formats(tmp_data_root: Path,
+                                                  monkeypatch: pytest.MonkeyPatch) -> None:
+    """WAV/MP3/OGG/FLAC skip the ffmpeg conversion entirely."""
+    from app.workers import transcribe
+
+    called = []
+    monkeypatch.setattr(transcribe.subprocess, "run",
+                         lambda *a, **kw: called.append(a))
+
+    for ext in (".wav", ".mp3", ".ogg", ".flac"):
+        p = tmp_data_root / f"clip{ext}"
+        p.write_bytes(b"x")
+        result = transcribe._to_whisper_wav(p)
+        assert result == p, f"{ext} should be returned unchanged"
+
+    assert called == [], "no subprocess should have been invoked for native formats"
+
+
+def test_to_whisper_wav_calls_ffmpeg_for_m4a(tmp_data_root: Path,
+                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    """m4a triggers ffmpeg with the right flags."""
+    from app.workers import transcribe
+
+    captured = {}
+
+    def fake_run(cmd, **kw):
+        captured["cmd"] = list(cmd)
+        # Simulate ffmpeg writing the wav file.
+        Path(cmd[-1]).write_bytes(b"wav")
+
+        class _R:
+            returncode = 0
+        return _R()
+
+    monkeypatch.setattr(transcribe.subprocess, "run", fake_run)
+
+    m4a = tmp_data_root / "clip.m4a"
+    m4a.write_bytes(b"aac")
+    result = transcribe._to_whisper_wav(m4a)
+
+    assert result == m4a.with_suffix(".wav")
+    assert captured["cmd"][0] == "ffmpeg"
+    assert "-ar" in captured["cmd"] and "16000" in captured["cmd"]
+    assert "-ac" in captured["cmd"] and "1" in captured["cmd"]
+    assert result.exists()
 
 
 def test_image_with_journal_note_routes_to_claude(worker_env, tmp_data_root: Path) -> None:

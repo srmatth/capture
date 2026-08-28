@@ -43,22 +43,46 @@ _HANDWRITING_HINT_KW = ("journal", "handwritten", "notebook", "diary", "letter",
 # ---------- Audio ----------
 
 
+# whisper.cpp's built-in miniaudio decoder only handles WAV, MP3, OGG,
+# FLAC. iOS Voice Memos default to m4a (AAC-in-MP4), which fails silently
+# at read_audio_data. We normalize everything to 16 kHz mono WAV first —
+# also what Whisper expects internally, so this is free of quality cost.
+_WHISPER_NATIVE_EXTS = {".wav", ".mp3", ".ogg", ".flac"}
+
+
+def _to_whisper_wav(src: Path) -> Path:
+    """Return a Path to a whisper-readable WAV. Cheap no-op if src is
+    already one of Whisper's native formats."""
+    if src.suffix.lower() in _WHISPER_NATIVE_EXTS:
+        return src
+    wav = src.with_suffix(".wav")
+    subprocess.run([
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-i", str(src),
+        "-ar", "16000",     # Whisper's expected sample rate
+        "-ac", "1",         # mono; Whisper collapses to mono internally anyway
+        str(wav),
+    ], check=True)
+    return wav
+
+
 def transcribe_audio(path: Path) -> str:
     """whisper.cpp on the audio file, English-only, medium model.
 
-    Writes <input>.txt alongside the source via -otxt. -np suppresses the
-    progress bar (systemd captures stdout, we don't want it filling the
-    journal).
+    Writes <input>.txt alongside the WAV via -otxt. -np suppresses the
+    progress bar (systemd captures stdout, we don't want it filling
+    the journal).
     """
     if not CONFIG.whisper_bin or not CONFIG.whisper_model:
         raise RuntimeError(
             "WHISPER_BIN / WHISPER_MODEL env vars not set — did Step 4 run?"
         )
+    wav = _to_whisper_wav(path)
     subprocess.run([
         str(CONFIG.whisper_bin), "-m", str(CONFIG.whisper_model),
-        "-l", "en", "-otxt", "-np", "-f", str(path),
+        "-l", "en", "-otxt", "-np", "-f", str(wav),
     ], check=True)
-    return path.with_suffix(".txt").read_text()
+    return wav.with_suffix(".txt").read_text()
 
 
 # ---------- Image / vision helpers ----------
