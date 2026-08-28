@@ -23,7 +23,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from ulid import ULID
 
 from ..config import CONFIG
-from ..db import get_item, insert_item
+from ..db import get_item, insert_item, reset_retry_state
 
 router = APIRouter()
 
@@ -153,4 +153,60 @@ async def job_status(item_id: str) -> dict:
         "error_message": row["error_message"],
         "title": row["title"],
         "path": row["path"],
+        "retry_count": row["retry_count"],
+        "last_error_at": row["last_error_at"],
+    }
+
+
+def _rewind_status(row: dict) -> str:
+    """Figure out which pipeline stage a failed item belongs back at.
+
+    Heuristic based on which output fields exist:
+      - has path AND is 'dead_letter'/'failed' with path set → embed
+        (classify already succeeded, only embed can be to blame)
+      - has transcript_path but no path → classify
+      - has no transcript_path → transcribe
+    """
+    if row.get("path"):
+        return "classified"     # embed re-tries this
+    if row.get("transcript_path"):
+        return "transcribed"    # classify re-tries this
+    return "queued"             # transcribe re-tries this
+
+
+@router.post("/jobs/{item_id}/retry")
+async def retry_job(item_id: str) -> dict:
+    """Manual retry. Clears retry_count + last_error_at + error_message
+    and rewinds status to the last-known-good stage so the appropriate
+    worker picks it up on its next fire. Also touches the corresponding
+    marker file so systemd path units notice immediately."""
+    row = get_item(item_id)
+    if row is None:
+        raise HTTPException(404)
+    if row["status"] not in ("failed", "dead_letter"):
+        raise HTTPException(
+            409,
+            f"item is {row['status']!r}, only failed/dead_letter items can be retried",
+        )
+
+    new_status = _rewind_status(row)
+    reset_retry_state(item_id, new_status)
+
+    # Touch the correct marker so the path unit fires immediately.
+    # Not strictly necessary since workers now consult the DB, but
+    # keeps the systemd-fire loop tight.
+    marker_dirs = {
+        "queued": None,                                          # transcribe watches inbox/
+        "transcribed": CONFIG.data_root / "queue" / "classify",
+        "classified": CONFIG.data_root / "queue" / "embed",
+    }
+    marker_dir = marker_dirs[new_status]
+    if marker_dir is not None:
+        marker_dir.mkdir(parents=True, exist_ok=True)
+        (marker_dir / item_id).touch()
+
+    return {
+        "id": item_id,
+        "status": new_status,
+        "retry_from_stage": new_status,
     }

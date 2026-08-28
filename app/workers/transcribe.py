@@ -24,7 +24,13 @@ import anthropic
 import ocrmypdf
 
 from ..config import CONFIG
-from ..db import get_item, list_items_by_status, update_item
+from ..db import (
+    get_item,
+    list_items_by_statuses,
+    record_worker_failure,
+    update_item,
+)
+from ..retry import is_ready_for_retry
 
 VISION_PROMPT = (
     "Transcribe the text in the image(s) verbatim. If there are multiple "
@@ -240,7 +246,15 @@ def process_one(item_id: str) -> None:
 
 
 def main() -> int:
-    pending = list_items_by_status("queued")
+    # 'queued' = fresh from upload; 'failed' = retry-eligible per the
+    # exponential-backoff schedule in app.retry. Items in 'dead_letter'
+    # are terminal and never picked up automatically.
+    candidates = list_items_by_statuses(["queued", "failed"])
+    pending = [
+        row for row in candidates
+        if row["status"] == "queued"
+        or is_ready_for_retry(row["retry_count"] or 0, row["last_error_at"])
+    ]
     if not pending:
         return 0
     first_error: Exception | None = None
@@ -248,13 +262,14 @@ def main() -> int:
         try:
             process_one(row["id"])
         except Exception as e:
-            update_item(row["id"], status="failed", error_message=repr(e))
-            # Remember the first error but keep draining the rest — one
-            # bad file shouldn't block a queue.
+            _, dead = record_worker_failure(row["id"], repr(e))
+            # dead_letter items alert once (on transition). Retryable
+            # failures alert every N tries by design — the OnFailure
+            # notification firing on every retry is fine for a personal
+            # setup and gives visibility while the item is stuck.
             if first_error is None:
                 first_error = e
     if first_error is not None:
-        # Non-zero exit so systemd sees the failure and OnFailure fires.
         raise first_error
     return 0
 

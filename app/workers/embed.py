@@ -20,7 +20,15 @@ from qdrant_client.models import PointStruct
 from sentence_transformers import SentenceTransformer
 
 from ..config import CONFIG
-from ..db import get_item, get_tags, update_item, upsert_fts
+from ..db import (
+    get_item,
+    get_tags,
+    list_items_by_statuses,
+    record_worker_failure,
+    update_item,
+    upsert_fts,
+)
+from ..retry import is_ready_for_retry
 
 # One-vector-per-item for personal-scale corpora. Chunking to sliding
 # windows is on the deferred list — swap in when a specific search
@@ -117,26 +125,37 @@ def process_one(item_id: str) -> None:
         marker.unlink()
 
 
-def _pending_markers() -> list[str]:
+def _pending_items() -> list[str]:
+    """Return item IDs eligible for the embed stage. Same pattern as
+    classify: includes normal 'classified' rows, in-flight 'embedding'
+    rows, AND retry-eligible 'failed' rows whose stage-signature says
+    they got stuck here (classify completed => path set, but status
+    isn't 'embedded' yet)."""
     queue = CONFIG.data_root / "queue" / "embed"
-    if not queue.is_dir():
-        return []
-    ids: list[str] = []
-    for marker in sorted(queue.iterdir()):
-        item_id = marker.name
-        row = get_item(item_id)
-        if row is None:
-            marker.unlink()
+    queue.mkdir(parents=True, exist_ok=True)
+
+    candidates = list_items_by_statuses(["classified", "embedding", "failed"])
+    pending: list[str] = []
+    for row in candidates:
+        status = row["status"]
+        if status in ("classified", "embedding"):
+            pending.append(row["id"])
             continue
-        if row["status"] in ("classified", "embedding"):
-            ids.append(item_id)
-        else:
+        # status == 'failed': eligible only if classify already succeeded.
+        if not row["path"]:
+            continue
+        if is_ready_for_retry(row["retry_count"] or 0, row["last_error_at"]):
+            pending.append(row["id"])
+
+    for marker in queue.iterdir():
+        if get_item(marker.name) is None:
             marker.unlink()
-    return ids
+
+    return pending
 
 
 def main() -> int:
-    pending = _pending_markers()
+    pending = _pending_items()
     if not pending:
         return 0
     first_error: Exception | None = None
@@ -144,7 +163,7 @@ def main() -> int:
         try:
             process_one(item_id)
         except Exception as e:
-            update_item(item_id, status="failed", error_message=repr(e))
+            record_worker_failure(item_id, repr(e))
             if first_error is None:
                 first_error = e
     if first_error is not None:

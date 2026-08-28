@@ -97,6 +97,57 @@ def list_items_by_status(status: str) -> list[dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
+def list_items_by_statuses(statuses: list[str]) -> list[dict[str, Any]]:
+    """Return items whose status is in the given list. Convenience for
+    workers that pick up both 'ready-for-this-stage' rows AND retry-
+    eligible 'failed' rows in one query."""
+    if not statuses:
+        return []
+    placeholders = ",".join("?" * len(statuses))
+    with _connect() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM items WHERE status IN ({placeholders}) "
+            "ORDER BY uploaded_at",
+            statuses,
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def record_worker_failure(item_id: str, error: str) -> tuple[int, bool]:
+    """Called by a worker's exception handler. Bumps retry_count, sets
+    last_error_at, decides between 'failed' (will retry) and
+    'dead_letter' (terminal). Returns (new_retry_count, is_dead_letter)."""
+    from .retry import should_dead_letter
+
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT retry_count FROM items WHERE id = ?", (item_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"no item {item_id}")
+        new_count = (row["retry_count"] or 0) + 1
+        dead = should_dead_letter(new_count)
+        conn.execute(
+            "UPDATE items SET retry_count = ?, last_error_at = ?, "
+            "status = ?, error_message = ?, updated_at = ? WHERE id = ?",
+            (new_count, _now(), "dead_letter" if dead else "failed",
+             error, _now(), item_id),
+        )
+    return new_count, dead
+
+
+def reset_retry_state(item_id: str, new_status: str) -> None:
+    """Manual retry: clear retry_count + last_error_at and rewind the
+    row to `new_status`. The router chooses new_status based on which
+    fields exist."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE items SET retry_count = 0, last_error_at = NULL, "
+            "error_message = NULL, status = ?, updated_at = ? WHERE id = ?",
+            (new_status, _now(), item_id),
+        )
+
+
 # Fields the pipeline is allowed to update. Whitelist so a typo never
 # writes to a bogus column.
 _UPDATABLE = frozenset({
@@ -104,6 +155,7 @@ _UPDATABLE = frozenset({
     "path", "final_filename", "title", "one_line_summary",
     "date_of_content", "confidence", "classifier_version",
     "transcript_path", "transcript_char_count", "transcript_source",
+    "retry_count", "last_error_at",
 })
 
 

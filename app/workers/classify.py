@@ -29,10 +29,12 @@ from ..db import (
     get_item,
     get_tags,  # noqa: F401 -- referenced elsewhere; import proves module wiring
     record_move,
+    record_worker_failure,
     set_entities,
     set_tags,
     update_item,
 )
+from ..retry import is_ready_for_retry
 from ..taxonomy import (
     CLASSIFIER_VERSION,
     CONFIDENCE_FLOOR,
@@ -261,30 +263,50 @@ def process_one(item_id: str) -> None:
         marker.unlink()
 
 
-def _pending_markers() -> list[str]:
-    """Return item IDs whose classify marker still exists AND whose DB
-    row is in a state we can act on."""
+def _pending_items() -> list[str]:
+    """Return item IDs eligible for the classify stage. Includes:
+    - 'transcribed' items with a fresh classify marker (normal path)
+    - 'classifying' items (a previous run crashed after status update
+      but before finishing) — these are retried
+    - 'failed' items whose backoff window has elapsed and whose stage
+      failure was during classify (identified by having transcript_path
+      set but no path)
+
+    Marker files are opportunistically recreated for retry-eligible
+    items so path units downstream still see them, but we no longer
+    require the marker's presence to run — the DB is authoritative.
+    """
+    from ..db import list_items_by_statuses
+
     queue = CONFIG.data_root / "queue" / "classify"
-    if not queue.is_dir():
-        return []
-    ids: list[str] = []
-    for marker in sorted(queue.iterdir()):
-        item_id = marker.name
-        row = get_item(item_id)
-        if row is None:
-            # Stale marker with no DB row. Delete and move on.
-            marker.unlink()
+    queue.mkdir(parents=True, exist_ok=True)
+
+    candidates = list_items_by_statuses(["transcribed", "classifying", "failed"])
+    pending: list[str] = []
+    for row in candidates:
+        status = row["status"]
+        if status in ("transcribed", "classifying"):
+            pending.append(row["id"])
             continue
-        if row["status"] in ("transcribed", "classifying"):
-            ids.append(item_id)
-        else:
-            # Either already past this stage or in a terminal state.
+        # status == 'failed'
+        # Only pick up failures that belong to THIS stage: transcript_path
+        # set (transcribe succeeded) but path not yet set (classify never
+        # completed).
+        if not row["transcript_path"] or row["path"]:
+            continue
+        if is_ready_for_retry(row["retry_count"] or 0, row["last_error_at"]):
+            pending.append(row["id"])
+
+    # Sweep the queue dir for stale markers pointing at non-existent items.
+    for marker in queue.iterdir():
+        if get_item(marker.name) is None:
             marker.unlink()
-    return ids
+
+    return pending
 
 
 def main() -> int:
-    pending = _pending_markers()
+    pending = _pending_items()
     if not pending:
         return 0
     first_error: Exception | None = None
@@ -292,7 +314,7 @@ def main() -> int:
         try:
             process_one(item_id)
         except Exception as e:
-            update_item(item_id, status="failed", error_message=repr(e))
+            record_worker_failure(item_id, repr(e))
             if first_error is None:
                 first_error = e
     if first_error is not None:
