@@ -1,7 +1,19 @@
 [Unit]
 Description=capture FastAPI web app (upload + search)
 After=network.target
-OnFailure=notify-fail@%n.service
+# No OnFailure=notify-fail here. This is a supervised long-running
+# process — Restart=on-failure below already handles crashes, and
+# Uptime Kuma's HTTP monitor on /healthz catches the case where the
+# restart loop can't recover. Adding an ntfy hook on top just spams
+# the phone every time we `systemctl restart` intentionally, because
+# uvicorn's SIGTERM-exit code doesn't cleanly translate through the
+# uv-wrapped process chain to a 0-status systemd sees.
+#
+# For the ONESHOT workers (transcribe, classify, embed, weekly-review)
+# the OnFailure hook DOES make sense — those don't have a supervisor
+# loop, so a failure is terminal until the next path-unit fire and
+# the ntfy is the only signal. Different failure semantics, different
+# reporting.
 
 [Service]
 Type=simple
