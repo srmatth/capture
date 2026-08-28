@@ -68,19 +68,37 @@ document.getElementById("cropCancel").onclick = closeCropper;
 document.getElementById("cropReset").onclick = () => cropper && cropper.reset();
 document.getElementById("cropRotate").onclick = () => cropper && cropper.rotate(90);
 document.getElementById("cropAccept").onclick = async () => {
-  if (!cropper) return;
-  // Cap output to keep uploads bounded. Phone cameras produce 12MP+ images;
-  // OCR quality doesn't benefit beyond ~2400px for typical page-sized content.
-  const canvas = cropper.getCroppedCanvas({
-    maxWidth: 2400, maxHeight: 2400, imageSmoothingQuality: "high",
-  });
-  const blob = await new Promise(r => canvas.toBlob(r, "image/jpeg", 0.92));
-  const wasBatch = (pendingCropFor === "batch");
-  closeCropper();
-  if (wasBatch) {
-    addPageToBatch(blob);
-  } else {
-    await uploadSingle(new File([blob], "capture.jpg", { type: "image/jpeg" }));
+  if (!cropper) {
+    status.textContent = "Nothing to accept — no cropper active.";
+    return;
+  }
+  try {
+    // Cap output to keep uploads bounded. Phone cameras produce 12MP+ images;
+    // OCR quality doesn't benefit beyond ~2400px for typical page-sized content.
+    const canvas = cropper.getCroppedCanvas({
+      maxWidth: 2400, maxHeight: 2400, imageSmoothingQuality: "high",
+    });
+    if (!canvas) {
+      throw new Error("getCroppedCanvas returned null — image may exceed browser canvas size limit");
+    }
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(
+        b => b ? resolve(b) : reject(new Error("toBlob returned null")),
+        "image/jpeg", 0.92,
+      );
+    });
+    const wasBatch = (pendingCropFor === "batch");
+    closeCropper();
+    if (wasBatch) {
+      addPageToBatch(blob);
+    } else {
+      await uploadSingle(new File([blob], "capture.jpg", { type: "image/jpeg" }));
+    }
+  } catch (e) {
+    // Surface it — silent failure here is what led us to think the
+    // button did nothing. Log for devtools, show for the user.
+    console.error("crop accept failed:", e);
+    status.textContent = `Crop failed: ${e.message}`;
   }
 };
 
