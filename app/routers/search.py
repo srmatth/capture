@@ -50,9 +50,9 @@ async def search_landing(request: Request, q: str = ""):
     else:
         recent = []
     return _templates().TemplateResponse(
+        request,
         "search.html",
         {
-            "request": request,
             "query": q,
             "hits": hits,
             "recent": recent,
@@ -96,8 +96,9 @@ async def browse_view(request: Request, path: str = ""):
     path shows items under it plus the sub-taxonomy siblings."""
     if not path:
         return _templates().TemplateResponse(
+            request,
             "browse_root.html",
-            {"request": request, "facets": path_facets(), "taxonomy": TAXONOMY},
+            {"facets": path_facets(), "taxonomy": TAXONOMY},
         )
 
     items = browse_items(path, limit=100)
@@ -113,9 +114,9 @@ async def browse_view(request: Request, path: str = ""):
             rel = r["path"][len(prefix):]
             child_paths.add(prefix + rel.split("/", 1)[0])
     return _templates().TemplateResponse(
+        request,
         "browse.html",
         {
-            "request": request,
             "path": path,
             "items": items,
             "child_paths": sorted(child_paths),
@@ -130,8 +131,9 @@ async def browse_view(request: Request, path: str = ""):
 async def tag_view(request: Request, tag: str):
     items = list_by_tag(tag, limit=100)
     return _templates().TemplateResponse(
+        request,
         "tag.html",
-        {"request": request, "tag": tag, "items": items},
+        {"tag": tag, "items": items},
     )
 
 
@@ -151,9 +153,9 @@ async def item_detail(request: Request, item_id: str):
             transcript = t_path.read_text()
 
     return _templates().TemplateResponse(
+        request,
         "item.html",
         {
-            "request": request,
             "row": dict(row),
             "tags": get_tags(item_id),
             "transcript": transcript,

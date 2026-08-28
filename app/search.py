@@ -126,28 +126,27 @@ def _sql_where_from_filters(filters: dict[str, list[str]]) -> tuple[str, list[An
 
 def semantic_search(text: str, limit: int = 25) -> list[tuple[str, float]]:
     """Return [(item_id, score), ...] via Qdrant. Empty list on any
-    failure (missing model, missing collection) — search UI shouldn't
-    500 because a lazy service isn't ready yet."""
+    failure (missing model, missing collection, network to HF Hub
+    unreachable) — search UI shouldn't 500 because a lazy service
+    isn't ready yet. Once the model is loaded successfully once, we
+    cache the client at module level, so failure only re-happens if
+    the model was never loaded to begin with.
+    """
     if not text:
         return []
-    try:
-        from sentence_transformers import SentenceTransformer
-        from qdrant_client import QdrantClient
-    except ImportError:
-        return []
 
-    # Reuse module-level clients so successive requests share the
-    # model. Lazy so import-time is fast for tests.
     global _MODEL, _QDRANT
-    if _MODEL is None:
-        _MODEL = SentenceTransformer(
-            "sentence-transformers/all-MiniLM-L6-v2",
-            cache_folder=str(CONFIG.hf_home) if CONFIG.hf_home else None,
-        )
-    if _QDRANT is None:
-        _QDRANT = QdrantClient(url=CONFIG.qdrant_url)
-
     try:
+        if _MODEL is None:
+            from sentence_transformers import SentenceTransformer
+            _MODEL = SentenceTransformer(
+                "sentence-transformers/all-MiniLM-L6-v2",
+                cache_folder=str(CONFIG.hf_home) if CONFIG.hf_home else None,
+            )
+        if _QDRANT is None:
+            from qdrant_client import QdrantClient
+            _QDRANT = QdrantClient(url=CONFIG.qdrant_url)
+
         vector = _MODEL.encode(text).tolist()
         results = _QDRANT.search(
             collection_name="library",
@@ -155,7 +154,11 @@ def semantic_search(text: str, limit: int = 25) -> list[tuple[str, float]]:
             limit=limit,
         )
     except Exception:
+        # Any failure at any point — model load, network to HF, Qdrant
+        # unreachable, malformed vector, whatever — falls through to
+        # keyword-only search. Not a 500.
         return []
+
     # Payload carries item_id (the ULID). The Qdrant point ID is a
     # ULID→UUID mapping, not the item_id itself.
     return [

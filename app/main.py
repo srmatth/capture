@@ -44,7 +44,7 @@ async def index(request: Request) -> HTMLResponse:
         # Reuse the search router's landing handler so we don't
         # duplicate template context.
         return await search.search_landing(request, q="")
-    return TEMPLATES.TemplateResponse("index.html", {"request": request})
+    return TEMPLATES.TemplateResponse(request, "index.html")
 
 
 @app.get("/healthz")
