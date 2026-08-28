@@ -1,0 +1,23 @@
+[Unit]
+Description=capture FastAPI web app (upload + search)
+After=network.target
+OnFailure=notify-fail@%n.service
+
+[Service]
+Type=simple
+Environment=DATA_ROOT=/srv/data/capture
+Environment=LIBRARY_DB=/srv/data/capture/library.db
+Environment=QDRANT_URL=http://127.0.0.1:6333
+Environment=HF_HOME=/srv/data/capture/models/hf
+EnvironmentFile=%h/.config/matthewshome/capture.env
+WorkingDirectory=/srv/capture
+# Bind to loopback because Caddy fronts this (see PHASE_2_CAPTURE.md
+# Step 13). If you want to hit uvicorn directly from the tailnet before
+# Caddy is wired up, change --host to 0.0.0.0 temporarily.
+ExecStart=%h/.local/bin/uv run --project /srv/capture --no-dev \
+    uvicorn app.main:app --host 127.0.0.1 --port 8090
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target

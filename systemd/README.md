@@ -10,8 +10,13 @@ systemctl --user daemon-reload
 systemctl --user enable --now \
   capture-transcribe.path \
   capture-classify.path \
-  capture-embed.path
+  capture-embed.path \
+  capture-web.service
 ```
+
+The `.service` files above are all `Type=oneshot` except `capture-web.service`,
+which is `Type=simple` and runs uvicorn under a supervisor loop with
+`Restart=on-failure`. That's the always-on process.
 
 Notes:
 
