@@ -34,6 +34,15 @@ document.querySelectorAll('input[type="file"]').forEach(input => {
 
 function openCropper(file) {
   const url = URL.createObjectURL(file);
+  // Force the <img> to render inside the visible cropper frame at
+  // whatever aspect ratio the source has. Without this, an image
+  // loaded from the phone camera (typically 4032x3024) renders at
+  // native size and Cropper only shows the top-left corner. The
+  // Cropper container mirrors the <img> element's rendered size,
+  // so constraining the image with CSS constrains the whole widget.
+  cropImage.style.maxWidth = "100%";
+  cropImage.style.maxHeight = "60vh";
+  cropImage.style.display = "block";
   cropImage.src = url;
   cropStage.hidden = false;
   cropImage.onload = () => {
@@ -44,6 +53,13 @@ function openCropper(file) {
       autoCropArea: 1,
       background: false,
       responsive: true,
+      // Fit the whole image into the container on init. Without this
+      // Cropper uses the image's natural size, which on a phone photo
+      // is way bigger than the viewport.
+      minContainerWidth: 200,
+      minContainerHeight: 200,
+      checkOrientation: true,   // respect EXIF rotation so portrait phone
+                                // photos don't come in sideways
     });
   };
 }
