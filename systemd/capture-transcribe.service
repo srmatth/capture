@@ -1,0 +1,15 @@
+[Unit]
+Description=Drain capture inbox: transcribe every queued item
+OnFailure=notify-fail@%n.service
+
+[Service]
+Type=oneshot
+Environment=DATA_ROOT=/srv/data/capture
+Environment=LIBRARY_DB=/srv/data/capture/library.db
+Environment=WHISPER_BIN=/srv/data/capture/models/whisper.cpp/whisper
+Environment=WHISPER_MODEL=/srv/data/capture/models/whisper.cpp/ggml-medium.en.bin
+Environment=HF_HOME=/srv/data/capture/models/hf
+EnvironmentFile=%h/.config/matthewshome/capture.env
+# uv resolves the project's venv from --project. Absolute path to uv
+# because systemd's PATH does not include ~/.local/bin.
+ExecStart=%h/.local/bin/uv run --project /srv/capture --no-dev python -m app.workers.transcribe

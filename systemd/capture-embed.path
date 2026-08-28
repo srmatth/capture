@@ -1,0 +1,8 @@
+[Unit]
+Description=Watch embed queue for classified items
+
+[Path]
+PathChanged=/srv/data/capture/queue/embed
+
+[Install]
+WantedBy=default.target

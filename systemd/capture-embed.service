@@ -1,0 +1,12 @@
+[Unit]
+Description=Drain capture embed queue (Step 10)
+OnFailure=notify-fail@%n.service
+
+[Service]
+Type=oneshot
+Environment=DATA_ROOT=/srv/data/capture
+Environment=LIBRARY_DB=/srv/data/capture/library.db
+Environment=QDRANT_URL=http://127.0.0.1:6333
+Environment=HF_HOME=/srv/data/capture/models/hf
+EnvironmentFile=%h/.config/matthewshome/capture.env
+ExecStart=%h/.local/bin/uv run --project /srv/capture --no-dev python -m app.workers.embed

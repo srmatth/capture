@@ -1,0 +1,12 @@
+[Unit]
+Description=Watch capture inbox for files needing transcription
+
+[Path]
+# PathChanged catches both creates (single uploads) and directory-tree
+# changes (batch uploads where a per-item subdir gets populated).
+PathChanged=/srv/data/capture/inbox/audio
+PathChanged=/srv/data/capture/inbox/image
+PathChanged=/srv/data/capture/inbox/pdf
+
+[Install]
+WantedBy=default.target

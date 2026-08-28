@@ -1,0 +1,8 @@
+[Unit]
+Description=Watch classify queue for transcribed items
+
+[Path]
+PathChanged=/srv/data/capture/queue/classify
+
+[Install]
+WantedBy=default.target
