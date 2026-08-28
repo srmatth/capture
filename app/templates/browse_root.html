@@ -1,0 +1,25 @@
+{% extends "_base.html" %}
+{% block title %}Browse — Capture{% endblock %}
+{% block header %}Browse{% endblock %}
+{% block content %}
+
+<h2>Categories</h2>
+<ul class="facets">
+{% for name, count in facets %}
+  <li><a href="/browse?path={{ name }}">{{ name }}</a> ({{ count }})</li>
+{% else %}
+  <li>Nothing here yet.</li>
+{% endfor %}
+</ul>
+
+<details>
+  <summary>Full taxonomy</summary>
+  <dl class="taxonomy">
+  {% for path, desc in taxonomy.items() %}
+    <dt>{{ path }}</dt>
+    <dd>{{ desc }}</dd>
+  {% endfor %}
+  </dl>
+</details>
+
+{% endblock %}

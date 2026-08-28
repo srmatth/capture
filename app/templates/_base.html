@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <link rel="stylesheet" href="/static/style.css">
+  <title>{% block title %}Capture{% endblock %}</title>
+</head>
+<body>
+  <header>
+    <h1><a href="/">{% block header %}Capture{% endblock %}</a></h1>
+    <nav>
+      <a href="/">Home</a> ·
+      <a href="/search">Search</a> ·
+      <a href="/browse">Browse</a> ·
+      <a href="/inbox">Inbox</a>
+    </nav>
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+</body>
+</html>

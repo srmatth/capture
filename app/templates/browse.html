@@ -1,0 +1,29 @@
+{% extends "_base.html" %}
+{% block title %}{{ path }} — Capture{% endblock %}
+{% block header %}Browse — {{ path }}{% endblock %}
+{% block content %}
+
+<nav class="breadcrumb">
+  <a href="/browse">All</a>
+  {% set parts = path.split('/') %}
+  {% for i in range(parts|length) %}
+    / <a href="/browse?path={{ parts[:i+1]|join('/') }}">{{ parts[i] }}</a>
+  {% endfor %}
+</nav>
+
+{% if child_paths %}
+  <section class="child-paths">
+    <h2>Sub-folders</h2>
+    <ul>
+    {% for c in child_paths %}
+      <li><a href="/browse?path={{ c }}">{{ c }}</a></li>
+    {% endfor %}
+    </ul>
+  </section>
+{% endif %}
+
+<h2>Items in {{ path }}</h2>
+{% set hits = items %}
+{% include "_hit_list.html" with context %}
+
+{% endblock %}

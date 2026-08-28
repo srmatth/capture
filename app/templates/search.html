@@ -1,0 +1,33 @@
+{% extends "_base.html" %}
+{% block title %}Search — Capture{% endblock %}
+{% block header %}Search{% endblock %}
+{% block content %}
+
+<form class="search-form" action="/search" method="get">
+  <input type="search" name="q" value="{{ query }}"
+         placeholder="Search... (try: tag:antitrust after:2026-01 case brief)"
+         autocomplete="off" autofocus>
+  <button type="submit">Go</button>
+</form>
+
+{% if query %}
+  <h2>Results for <code>{{ query }}</code></h2>
+  {% include "_hit_list.html" with context %}
+{% else %}
+  <section class="facets">
+    <h2>Browse by category</h2>
+    <ul>
+    {% for name, count in facets %}
+      <li><a href="/browse?path={{ name }}">{{ name }}</a> ({{ count }})</li>
+    {% endfor %}
+    </ul>
+  </section>
+
+  <section>
+    <h2>Recent uploads</h2>
+    {% set hits = recent %}
+    {% include "_hit_list.html" with context %}
+  </section>
+{% endif %}
+
+{% endblock %}

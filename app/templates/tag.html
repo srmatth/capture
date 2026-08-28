@@ -1,0 +1,10 @@
+{% extends "_base.html" %}
+{% block title %}{{ tag }} — Capture{% endblock %}
+{% block header %}Tag: {{ tag }}{% endblock %}
+{% block content %}
+
+<h2>Items tagged <code>{{ tag }}</code></h2>
+{% set hits = items %}
+{% include "_hit_list.html" with context %}
+
+{% endblock %}

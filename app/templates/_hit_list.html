@@ -1,0 +1,23 @@
+{# Renders a list of SearchHit records. Reused by search / browse / tag. #}
+<ol class="hits">
+{% for h in hits %}
+  <li class="hit">
+    <a class="title" href="/item/{{ h.item_id }}">{{ h.title }}</a>
+    <div class="meta">
+      <span class="path">{{ h.path or 'inbox' }}</span>
+      {% if h.date_of_content %}<span class="date">{{ h.date_of_content }}</span>{% endif %}
+      <span class="kind">{{ h.source_kind }}</span>
+    </div>
+    {% if h.one_line_summary %}
+      <p class="summary">{{ h.one_line_summary }}</p>
+    {% endif %}
+    {% if h.tags %}
+      <div class="tags">
+        {% for t in h.tags %}<a class="tag" href="/tags/{{ t }}">{{ t }}</a>{% endfor %}
+      </div>
+    {% endif %}
+  </li>
+{% else %}
+  <li class="hit-empty">Nothing here yet.</li>
+{% endfor %}
+</ol>
