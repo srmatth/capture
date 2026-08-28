@@ -9,4 +9,5 @@ Environment=LIBRARY_DB=/srv/data/capture/library.db
 Environment=QDRANT_URL=http://127.0.0.1:6333
 Environment=HF_HOME=/srv/data/capture/models/hf
 EnvironmentFile=%h/.config/matthewshome/capture.env
+WorkingDirectory=/srv/capture
 ExecStart=%h/.local/bin/uv run --project /srv/capture --no-dev python -m app.workers.embed

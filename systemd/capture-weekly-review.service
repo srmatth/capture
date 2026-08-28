@@ -7,4 +7,9 @@ Type=oneshot
 Environment=DATA_ROOT=/srv/data/capture
 Environment=LIBRARY_DB=/srv/data/capture/library.db
 EnvironmentFile=%h/.config/systemd/user/ntfy.env
+# `uv run --project` sets up the right venv but does NOT cd into the
+# project. Without WorkingDirectory the `python -m app.*` import fails
+# because sys.path[0] is systemd's default cwd (/), and there's no
+# `app/` package under /.
+WorkingDirectory=/srv/capture
 ExecStart=%h/.local/bin/uv run --project /srv/capture --no-dev python -m app.tasks.weekly_digest

@@ -10,6 +10,10 @@ Environment=WHISPER_BIN=/srv/data/capture/models/whisper.cpp/whisper
 Environment=WHISPER_MODEL=/srv/data/capture/models/whisper.cpp/ggml-small.en.bin
 Environment=HF_HOME=/srv/data/capture/models/hf
 EnvironmentFile=%h/.config/matthewshome/capture.env
-# uv resolves the project's venv from --project. Absolute path to uv
-# because systemd's PATH does not include ~/.local/bin.
+# `uv run --project` sets up the venv but does NOT cd into the project.
+# Without WorkingDirectory the `python -m app.workers.transcribe` import
+# fails with ModuleNotFoundError since sys.path[0] is systemd's default
+# cwd (/). Absolute path to uv because systemd's PATH doesn't include
+# ~/.local/bin.
+WorkingDirectory=/srv/capture
 ExecStart=%h/.local/bin/uv run --project /srv/capture --no-dev python -m app.workers.transcribe
