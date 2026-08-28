@@ -157,3 +157,27 @@ def test_upload_route_serves_pwa(tmp_data_root: Path) -> None:
         r = _client().get("/upload", headers={"host": host})
         assert r.status_code == 200, f"{host}"
         assert "capture-btn" in r.text or "Scan document" in r.text
+
+
+# ---------- static asset resolution ----------
+#
+# The upload page references vendored Cropper.js assets. If those files
+# aren't on disk, the crop UI silently fails to render (no error message,
+# just no overlay). The install of these files is a manual curl step in
+# PHASE_2_CAPTURE.md Step 6b — this test fails loudly if that step was
+# skipped so we don't ship a broken UI silently again.
+
+
+@pytest.mark.parametrize("asset", [
+    "/static/cropper.min.js",
+    "/static/cropper.min.css",
+    "/static/upload.js",
+    "/static/style.css",
+    "/static/manifest.webmanifest",
+])
+def test_static_assets_reachable(tmp_data_root: Path, asset: str) -> None:
+    r = _client().get(asset)
+    assert r.status_code == 200, f"{asset} not served"
+    # Reasonable lower-bound size cutoff — if a file is <100 bytes it's
+    # almost certainly a stub or empty file.
+    assert len(r.content) > 100, f"{asset} looks suspiciously small: {len(r.content)}b"
