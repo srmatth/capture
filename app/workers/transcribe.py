@@ -82,7 +82,10 @@ def transcribe_audio(path: Path) -> str:
         str(CONFIG.whisper_bin), "-m", str(CONFIG.whisper_model),
         "-l", "en", "-otxt", "-np", "-f", str(wav),
     ], check=True)
-    return wav.with_suffix(".txt").read_text()
+    # whisper.cpp -otxt writes <full-input-name>.txt (i.e. it appends
+    # rather than replacing the extension). Path.with_suffix() replaces,
+    # so we can't use it here.
+    return Path(str(wav) + ".txt").read_text()
 
 
 # ---------- Image / vision helpers ----------
