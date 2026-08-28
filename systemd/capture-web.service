@@ -16,6 +16,15 @@ WorkingDirectory=/srv/capture
 # Caddy is wired up, change --host to 0.0.0.0 temporarily.
 ExecStart=%h/.local/bin/uv run --project /srv/capture --no-dev \
     uvicorn app.main:app --host 127.0.0.1 --port 8090
+# Graceful shutdown: uvicorn treats SIGINT as "drain then exit 0."
+# Default SIGTERM makes it exit 143 (128 + 15), which systemd sees as
+# failure and fires OnFailure=notify-fail — spurious 'service failed'
+# ntfy pushes on every `systemctl restart`. SIGINT + a 30s window to
+# actually drain in-flight requests + explicit 143-as-success as a
+# belt-and-suspenders is the fix.
+KillSignal=SIGINT
+TimeoutStopSec=30
+SuccessExitStatus=143
 Restart=on-failure
 RestartSec=5s
 
