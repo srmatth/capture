@@ -141,6 +141,10 @@ def test_to_whisper_wav_calls_ffmpeg_for_m4a(tmp_data_root: Path,
             returncode = 0
         return _R()
 
+    # Bypass the executable-exists guard in transcribe._run — this test
+    # runs on dev boxes that may not have ffmpeg installed. Pretend
+    # every binary is present.
+    monkeypatch.setattr(transcribe.shutil, "which", lambda x: f"/usr/bin/{x}")
     monkeypatch.setattr(transcribe.subprocess, "run", fake_run)
 
     m4a = tmp_data_root / "clip.m4a"

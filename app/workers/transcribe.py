@@ -16,6 +16,7 @@ re-raised so systemd's OnFailure=notify-fail@%n.service fires.
 from __future__ import annotations
 
 import base64
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -31,6 +32,24 @@ from ..db import (
     update_item,
 )
 from ..retry import is_ready_for_retry
+
+
+def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
+    """subprocess.run with an up-front binary check.
+
+    A bare subprocess.run(['pdftotext', ...]) fails with FileNotFoundError(2)
+    both when the input file is missing AND when the executable itself isn't
+    on PATH — same errno, different meaning, both look like 'the file is
+    gone.' Distinguishing these two failure modes is worth two lines of
+    defensive code. Called only for tools we shell out to (tesseract,
+    pdftotext, ffmpeg, whisper.cpp)."""
+    exe = cmd[0]
+    if shutil.which(exe) is None and not Path(exe).is_file():
+        raise RuntimeError(
+            f"required executable {exe!r} not found on PATH — "
+            f"is the package installed?"
+        )
+    return subprocess.run(cmd, **kwargs)
 
 VISION_PROMPT = (
     "Transcribe the text in the image(s) verbatim. If there are multiple "
@@ -62,7 +81,7 @@ def _to_whisper_wav(src: Path) -> Path:
     if src.suffix.lower() in _WHISPER_NATIVE_EXTS:
         return src
     wav = src.with_suffix(".wav")
-    subprocess.run([
+    _run([
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-i", str(src),
         "-ar", "16000",     # Whisper's expected sample rate
@@ -84,7 +103,7 @@ def transcribe_audio(path: Path) -> str:
             "WHISPER_BIN / WHISPER_MODEL env vars not set — did Step 4 run?"
         )
     wav = _to_whisper_wav(path)
-    subprocess.run([
+    _run([
         str(CONFIG.whisper_bin), "-m", str(CONFIG.whisper_model),
         "-l", "en", "-otxt", "-np", "-f", str(wav),
     ], check=True)
@@ -101,7 +120,7 @@ def _looks_handwritten(img_path: Path) -> bool:
     """Cheap Tesseract sniff. If we find almost no real words, assume
     handwriting or a picture with no printed text and let the caller
     route to Claude."""
-    result = subprocess.run(
+    result = _run(
         ["tesseract", str(img_path), "-", "--psm", "6"],
         capture_output=True, text=True, timeout=60,
     )
@@ -144,7 +163,7 @@ def transcribe_image(path: Path, note: str = "") -> tuple[str, str]:
     """Single-image transcribe. Returns (text, source_tag)."""
     if _note_suggests_handwriting(note) or _looks_handwritten(path):
         return _claude_transcribe([path]), "claude-vision"
-    text = subprocess.run(
+    text = _run(
         ["tesseract", str(path), "-", "--psm", "6"],
         capture_output=True, text=True, timeout=120,
     ).stdout
@@ -171,7 +190,7 @@ def transcribe_pdf(pdf_path: Path, item_id: str, note: str = "") -> tuple[str, s
                 return _claude_transcribe(pages), "claude-vision-batch"
             parts: list[str] = []
             for p in pages:
-                text = subprocess.run(
+                text = _run(
                     ["tesseract", str(p), "-", "--psm", "6"],
                     capture_output=True, text=True, timeout=120,
                 ).stdout
@@ -182,7 +201,7 @@ def transcribe_pdf(pdf_path: Path, item_id: str, note: str = "") -> tuple[str, s
     ocr_pdf = pdf_path.with_name(pdf_path.stem + ".ocr.pdf")
     ocrmypdf.ocr(pdf_path, ocr_pdf, force_ocr=False, skip_text=True,
                  language="eng", progress_bar=False)
-    text = subprocess.run(
+    text = _run(
         ["pdftotext", str(ocr_pdf), "-"],
         capture_output=True, text=True, timeout=180,
     ).stdout
