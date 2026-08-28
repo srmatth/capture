@@ -23,9 +23,14 @@ Notes:
   or the worker will crash on first Claude call.
 - `OnFailure=notify-fail@%n.service` piggybacks on the shared notify template
   set up in Phase 0. Every worker failure pings the `alerts` ntfy topic.
-- The classify and embed services will `NotImplementedError` on first fire
-  until Steps 9 and 10 are built — that's expected. Leave them enabled so
-  the plumbing is proven before the workers exist.
+- The classify service reads `~/.config/matthewshome/capture.env` for
+  `ANTHROPIC_API_KEY`. The embed service reads `HF_HOME` (defaults to
+  `/srv/data/capture/models/hf`) — first run downloads
+  all-MiniLM-L6-v2 there (~90 MB, one-time).
+- The embed service also expects the Qdrant collection `library` to
+  already exist (created in Step 3 of `PHASE_2_CAPTURE.md`). If missing,
+  every embed call will fail loudly and OnFailure will fire, which is
+  the right behavior — silent-create would mask a misconfigured deploy.
 
 Verify:
 ```bash
