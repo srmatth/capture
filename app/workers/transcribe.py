@@ -60,9 +60,49 @@ VISION_PROMPT = (
 )
 
 # Keywords in the upload `note` field that force the Claude vision path.
-# Users type these when they know Tesseract will do poorly (handwriting,
-# unusual fonts, scanned typewritten pages).
-_HANDWRITING_HINT_KW = ("journal", "handwritten", "notebook", "diary", "letter", "note page")
+# Users type these when they know Tesseract will do poorly.
+#
+# Two categories:
+# - Handwriting/informal — always vision (Tesseract is hopeless).
+# - Complex-layout hints — also vision, because Tesseract's psm=1
+#   auto-segmentation fails on multi-column, magazine-style, and
+#   scan-of-scan layouts. The vision model reads columns natively.
+_HANDWRITING_HINT_KW = (
+    "journal", "handwritten", "notebook", "diary", "letter", "note page",
+)
+_COMPLEX_LAYOUT_HINT_KW = (
+    "column", "multi-column", "paper", "article",
+    "textbook", "brief", "magazine", "newspaper",
+)
+
+
+# Tesseract page-segmentation mode 1 does its own layout analysis and
+# outputs columns in reading order. Mode 6 assumed a single uniform block
+# and read left-to-right across columns, producing salad on any
+# multi-column document. psm=1 is the right default for real-world scans;
+# psm=6 stays available as a fallback if psm=1 comes back suspiciously
+# empty (rare, but has happened on very clean single-column single-page
+# scans where auto-segmentation confidently decides there's nothing here).
+_TESSERACT_PSM_PRIMARY = "1"
+_TESSERACT_PSM_FALLBACK = "6"
+_TESSERACT_MIN_WORDS = 20   # below this we retry with the fallback psm
+
+
+def _tesseract_image(path: Path) -> str:
+    """OCR one image. Tries psm=1 first, falls back to psm=6 if that
+    comes back suspiciously short. Returns the better of the two."""
+    primary = _run(
+        ["tesseract", str(path), "-", "--psm", _TESSERACT_PSM_PRIMARY],
+        capture_output=True, text=True, timeout=120,
+    ).stdout or ""
+    if len(primary.split()) >= _TESSERACT_MIN_WORDS:
+        return primary
+    fallback = _run(
+        ["tesseract", str(path), "-", "--psm", _TESSERACT_PSM_FALLBACK],
+        capture_output=True, text=True, timeout=120,
+    ).stdout or ""
+    # Return whichever produced more text.
+    return fallback if len(fallback.split()) > len(primary.split()) else primary
 
 
 # ---------- Audio ----------
@@ -119,9 +159,10 @@ def transcribe_audio(path: Path) -> str:
 def _looks_handwritten(img_path: Path) -> bool:
     """Cheap Tesseract sniff. If we find almost no real words, assume
     handwriting or a picture with no printed text and let the caller
-    route to Claude."""
+    route to Claude. Uses psm=1 to match the main OCR path so a page
+    that OCR won't handle at production time also fails here."""
     result = _run(
-        ["tesseract", str(img_path), "-", "--psm", "6"],
+        ["tesseract", str(img_path), "-", "--psm", _TESSERACT_PSM_PRIMARY],
         capture_output=True, text=True, timeout=60,
     )
     words = [w for w in (result.stdout or "").split() if len(w) >= 3]
@@ -130,6 +171,26 @@ def _looks_handwritten(img_path: Path) -> bool:
 
 def _note_suggests_handwriting(note: str) -> bool:
     return any(k in (note or "").lower() for k in _HANDWRITING_HINT_KW)
+
+
+def _note_suggests_complex_layout(note: str) -> bool:
+    """The upload `note` may signal that the user knows this document
+    has multi-column / magazine-style layout that trips OCR. When it
+    does, prefer Claude vision over Tesseract regardless of the
+    Tesseract confidence heuristic."""
+    return any(k in (note or "").lower() for k in _COMPLEX_LAYOUT_HINT_KW)
+
+
+def _should_use_vision(img_path: Path, note: str) -> bool:
+    """Central routing decision — should this image go to Claude vision
+    instead of Tesseract? Callers use this so the same logic applies
+    across single-image, batch-image, and PDF-with-companion-images
+    paths."""
+    return (
+        _note_suggests_handwriting(note)
+        or _note_suggests_complex_layout(note)
+        or _looks_handwritten(img_path)
+    )
 
 
 def _b64_image(path: Path) -> tuple[str, str]:
@@ -161,48 +222,42 @@ def _claude_transcribe(image_paths: list[Path]) -> str:
 
 def transcribe_image(path: Path, note: str = "") -> tuple[str, str]:
     """Single-image transcribe. Returns (text, source_tag)."""
-    if _note_suggests_handwriting(note) or _looks_handwritten(path):
+    if _should_use_vision(path, note):
         return _claude_transcribe([path]), "claude-vision"
-    text = _run(
-        ["tesseract", str(path), "-", "--psm", "6"],
-        capture_output=True, text=True, timeout=120,
-    ).stdout
-    return text, "tesseract"
+    return _tesseract_image(path), "tesseract"
 
 
 def transcribe_pdf(pdf_path: Path, item_id: str, note: str = "") -> tuple[str, str]:
     """PDF transcribe.
 
     If a companion inbox/image/<id>/ directory exists, this PDF is a
-    stitched batch of phone photos. We prefer the images for the
-    handwriting decision (Tesseract on an image is faster and cheaper
-    than running OCRmyPDF just to sniff), and if handwritten we send
-    all pages to Claude vision as ONE call.
+    stitched batch of phone photos. We use the individual images for
+    the routing decision (Tesseract on an image is faster than running
+    OCRmyPDF just to sniff), and if the routing says vision we send
+    all pages to Claude in ONE call for better cross-page context.
 
     Otherwise (a genuine PDF upload), we run OCRmyPDF → pdftotext.
+    pdftotext gets `-layout` so multi-column PDFs preserve their
+    reading order — the equivalent of Tesseract's psm=1 for images.
     """
     pages_dir = CONFIG.data_root / "inbox" / "image" / item_id
     if pages_dir.is_dir():
         pages = sorted(pages_dir.glob("page-*.*"))
         if pages:
-            handwritten = _note_suggests_handwriting(note) or _looks_handwritten(pages[0])
-            if handwritten:
+            if _should_use_vision(pages[0], note):
                 return _claude_transcribe(pages), "claude-vision-batch"
-            parts: list[str] = []
-            for p in pages:
-                text = _run(
-                    ["tesseract", str(p), "-", "--psm", "6"],
-                    capture_output=True, text=True, timeout=120,
-                ).stdout
-                parts.append(text)
+            parts = [_tesseract_image(p) for p in pages]
             return "\n---page break---\n".join(parts), "tesseract-batch"
 
     # Real PDF — OCRmyPDF path.
     ocr_pdf = pdf_path.with_name(pdf_path.stem + ".ocr.pdf")
     ocrmypdf.ocr(pdf_path, ocr_pdf, force_ocr=False, skip_text=True,
                  language="eng", progress_bar=False)
+    # `-layout` preserves column order in the output. Without it,
+    # pdftotext reads a 2-column paper straight across the page like
+    # Tesseract's old psm=6, producing salad.
     text = _run(
-        ["pdftotext", str(ocr_pdf), "-"],
+        ["pdftotext", "-layout", str(ocr_pdf), "-"],
         capture_output=True, text=True, timeout=180,
     ).stdout
     return text, "tesseract-pdf"

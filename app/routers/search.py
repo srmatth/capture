@@ -13,7 +13,7 @@ import shutil
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
 
 from ..config import CONFIG
@@ -261,6 +261,112 @@ async def item_move(item_id: str, path: Annotated[str, Form()]):
         pass
 
     return {"moved": True, "from": old_path, "to": path}
+
+
+@router.post("/item/{item_id}/retranscribe")
+async def item_retranscribe(
+    item_id: str,
+    with_: str = Query("vision", alias="with"),
+):
+    """Re-run the transcribe stage on this item. Query string:
+        ?with=vision    force Claude vision (default; the common case
+                        when Tesseract clearly failed on a multi-column
+                        or unusual-font document)
+        ?with=tesseract force local OCR (revert a vision transcript that
+                        went wrong, or save API cost on a redo)
+
+    Then reclassify + re-embed so search results reflect the new text.
+    """
+    row = get_item(item_id)
+    if row is None or row["deleted_at"]:
+        raise HTTPException(404)
+
+    kind = row["source_kind"]
+    if kind == "audio":
+        raise HTTPException(409, "audio items are Whisper-only; no vision fallback")
+    if kind == "plain":
+        raise HTTPException(409, "plaintext items have nothing to re-transcribe")
+
+    from ..workers import classify, transcribe
+
+    # Find the source image(s). For batch-uploaded PDFs the individual
+    # page images live under <path>/<id>.pages/ (moved by classify).
+    # For classified image items the raw file itself is <path>/<id>.<ext>.
+    # For genuine PDF uploads: <path>/<id>.pdf plus a Tesseract OCR
+    # sidecar we produced last time.
+    path_dir = CONFIG.data_root / (row["path"] or "inbox")
+    raw = path_dir / (row["final_filename"] or "")
+
+    if with_ == "vision":
+        pages: list[Path] = []
+        batch_dir = path_dir / f"{item_id}.pages"
+        if batch_dir.is_dir():
+            pages = sorted(batch_dir.glob("page-*.*"))
+        elif kind == "image":
+            pages = [raw]
+        elif kind == "pdf" and raw.exists():
+            # For a genuine (non-batch) PDF we don't have page images.
+            # Would need to render the PDF to images first — non-trivial,
+            # skip for now.
+            raise HTTPException(
+                409,
+                "vision retranscribe not supported for non-batch PDFs; "
+                "the source pages aren't available. Delete and re-upload as "
+                "a multi-page scan if vision quality matters here.",
+            )
+        if not pages:
+            raise HTTPException(404, "source image(s) not found")
+
+        try:
+            text = transcribe._claude_transcribe(pages)
+            source_tag = "claude-vision-batch" if len(pages) > 1 else "claude-vision"
+        except Exception as e:
+            raise HTTPException(500, f"vision retranscribe failed: {e!r}") from e
+    elif with_ == "tesseract":
+        if kind == "image":
+            text, source_tag = transcribe.transcribe_image(raw, note="")
+        elif kind == "pdf":
+            text, source_tag = transcribe.transcribe_pdf(raw, item_id, note="")
+        else:
+            raise HTTPException(409, f"unsupported source_kind: {kind}")
+    else:
+        raise HTTPException(400, "with= must be 'vision' or 'tesseract'")
+
+    # Write the new transcript in place.
+    transcript_path = CONFIG.data_root / row["transcript_path"] if row["transcript_path"] else None
+    if transcript_path is None:
+        transcript_path = CONFIG.data_root / "processed" / (row["path"] or "inbox") / f"{item_id}.txt"
+        transcript_path.parent.mkdir(parents=True, exist_ok=True)
+    transcript_path.write_text(text)
+    update_item(
+        item_id,
+        transcript_path=str(transcript_path.relative_to(CONFIG.data_root)),
+        transcript_char_count=len(text),
+        transcript_source=source_tag,
+    )
+
+    # Re-run classify + embed so search reflects the new text. Both are
+    # idempotent.
+    try:
+        classify.process_one(item_id)
+    except Exception as e:
+        raise HTTPException(500, f"reclassify after retranscribe failed: {e!r}") from e
+    try:
+        from ..workers import embed
+        embed.process_one(item_id)
+    except Exception:
+        # Embed failure is non-fatal — search will fall back to FTS
+        # until the next embed run picks it up.
+        pass
+
+    updated = get_item(item_id)
+    return {
+        "retranscribed": True,
+        "with": with_,
+        "transcript_source": source_tag,
+        "path": updated["path"],
+        "confidence": updated["confidence"],
+    }
 
 
 @router.post("/item/{item_id}/reclassify")

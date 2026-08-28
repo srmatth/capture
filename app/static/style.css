@@ -154,6 +154,18 @@ a.tag:hover { color: var(--fg); border-color: var(--fg); }
 }
 .item-meta dt { color: var(--muted); }
 .item-meta dd { margin: 0; }
+[class^="transcript-src-"] {
+  font-family: monospace; font-size: .85em;
+  padding: .1em .5em; border-radius: 999px;
+  background: var(--border); color: var(--fg);
+}
+.transcript-src-tesseract,
+.transcript-src-tesseract-batch,
+.transcript-src-tesseract-pdf { background: #dbeafe; color: #1e40af; }
+.transcript-src-claude-vision,
+.transcript-src-claude-vision-batch { background: #fef3c7; color: #92400e; }
+.transcript-src-whisper\.cpp { background: #ddd6fe; color: #5b21b6; }
+.transcript-src-plaintext { background: var(--border); color: var(--muted); }
 .status-failed, .status-dead_letter { color: var(--danger); }
 .error { color: var(--danger); font-family: monospace; font-size: .85rem; }
 

@@ -196,3 +196,87 @@ def test_item_reclassify_calls_worker(tmp_data_root: Path,
 def test_item_reclassify_404(tmp_data_root: Path) -> None:
     r = _client().post("/item/does-not-exist/reclassify")
     assert r.status_code == 404
+
+
+# ---------- retranscribe ----------
+
+
+def test_retranscribe_with_vision_calls_claude_and_updates_source(
+    tmp_data_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """POST /item/<id>/retranscribe?with=vision should call Claude, update
+    the transcript file, and set transcript_source to claude-vision."""
+    from app.workers import classify, embed, transcribe
+
+    item_id = "01RTV0000000000000000000A"
+    _seed_classified_item(item_id=item_id)  # source_kind='image', tesseract
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        transcribe, "_claude_transcribe",
+        lambda paths: (calls.append([p.name for p in paths]) or "REVISED TEXT")
+        or "REVISED TEXT",
+    )
+    # Don't actually re-run classify / embed — we just want to verify
+    # transcribe part fires and the DB updates.
+    monkeypatch.setattr(classify, "process_one", lambda _id: None)
+    monkeypatch.setattr(embed, "process_one", lambda _id: None)
+
+    r = _client().post(f"/item/{item_id}/retranscribe?with=vision")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["retranscribed"] is True
+    assert body["transcript_source"] == "claude-vision"
+
+    from app.config import CONFIG
+    from app.db import get_item
+    row = get_item(item_id)
+    assert row["transcript_source"] == "claude-vision"
+    # Transcript file updated.
+    assert (CONFIG.data_root / row["transcript_path"]).read_text() == "REVISED TEXT"
+    # Claude was called with the raw image.
+    assert calls == [[f"{item_id}.jpg"]]
+
+
+def test_retranscribe_audio_rejected(tmp_data_root: Path) -> None:
+    """Audio items don't have a vision fallback — Whisper is the only
+    audio transcription path."""
+    from app.db import init_db, insert_item, update_item
+
+    init_db()
+    item_id = "01RTV0000000000000000000B"
+    insert_item(item_id=item_id, source_kind="audio",
+                 original_filename="x.m4a", mime_type="audio/m4a", size_bytes=1)
+    update_item(item_id, status="embedded", path="notes/personal",
+                 title="clip", transcript_path=f"processed/audio/{item_id}.txt",
+                 transcript_source="whisper.cpp")
+
+    r = _client().post(f"/item/{item_id}/retranscribe?with=vision")
+    assert r.status_code == 409
+    assert "audio" in r.text.lower()
+
+
+def test_retranscribe_pdf_without_batch_pages_rejects_vision(
+    tmp_data_root: Path,
+) -> None:
+    """A genuine (non-batch) PDF has no source images we could send to
+    vision. The endpoint should reject with a clear message rather than
+    silently no-op."""
+    from app.config import CONFIG
+    from app.db import init_db, insert_item, update_item
+
+    init_db()
+    item_id = "01RTV0000000000000000000C"
+    insert_item(item_id=item_id, source_kind="pdf",
+                 original_filename="paper.pdf", mime_type="application/pdf",
+                 size_bytes=1)
+    (CONFIG.data_root / "reference" / "academic").mkdir(parents=True, exist_ok=True)
+    (CONFIG.data_root / "reference" / "academic" / f"{item_id}.pdf").write_bytes(b"%PDF")
+    update_item(item_id, status="embedded", path="reference/academic",
+                 final_filename=f"{item_id}.pdf", title="Paper",
+                 transcript_path=f"processed/reference/academic/{item_id}.txt",
+                 transcript_source="tesseract-pdf")
+
+    r = _client().post(f"/item/{item_id}/retranscribe?with=vision")
+    assert r.status_code == 409
+    assert "non-batch" in r.text.lower() or "vision" in r.text.lower()

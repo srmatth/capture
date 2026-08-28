@@ -13,6 +13,10 @@
       <dt>Content date</dt><dd>{{ row.date_of_content }}</dd>
     {% endif %}
     <dt>Kind</dt><dd>{{ row.source_kind }}</dd>
+    {% if row.transcript_source %}
+      <dt>Transcribed via</dt>
+      <dd class="transcript-src-{{ row.transcript_source }}">{{ row.transcript_source }}</dd>
+    {% endif %}
     <dt>Confidence</dt><dd>{{ '%.2f'|format(row.confidence) if row.confidence else 'n/a' }}</dd>
     <dt>Status</dt><dd class="status-{{ row.status }}">{{ row.status }}</dd>
     {% if row.status == 'failed' or row.status == 'dead_letter' %}
@@ -69,6 +73,21 @@
   <form method="post" action="/item/{{ row.id }}/reclassify" class="action-row">
     <button type="submit">Re-classify (re-runs the LLM)</button>
   </form>
+
+  {% if row.source_kind in ('image', 'pdf') %}
+    {% if row.transcript_source and not row.transcript_source.startswith('claude') %}
+      <form method="post" action="/item/{{ row.id }}/retranscribe?with=vision"
+            class="action-row">
+        <button type="submit">Re-transcribe with Claude vision</button>
+      </form>
+    {% endif %}
+    {% if row.transcript_source and row.transcript_source.startswith('claude') %}
+      <form method="post" action="/item/{{ row.id }}/retranscribe?with=tesseract"
+            class="action-row">
+        <button type="submit">Re-transcribe with Tesseract (revert)</button>
+      </form>
+    {% endif %}
+  {% endif %}
 
   <a class="action-download" href="/item/{{ row.id }}/raw" download>Download raw</a>
 

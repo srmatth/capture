@@ -231,6 +231,83 @@ def test_pdf_batch_typed_routes_to_tesseract_per_page(worker_env, tmp_data_root:
     assert row["transcript_source"] == "tesseract-batch"
 
 
+def test_complex_layout_note_routes_to_claude(worker_env, tmp_data_root: Path,
+                                                monkeypatch: pytest.MonkeyPatch) -> None:
+    """A note like 'multi-column paper' should force vision even if
+    Tesseract's sniff would otherwise say 'looks fine'."""
+    transcribe, calls = worker_env
+    item_id = _make_item("image", note="multi-column paper")
+    src = tmp_data_root / "inbox" / "image" / f"{item_id}.jpg"
+    src.write_bytes(_jpeg_bytes())
+
+    # Even if the sniff heuristic would return False (lots of Tesseract
+    # words), the note should force the vision path.
+    def wordy_tesseract(args, **kw):
+        class _R:
+            stdout = " ".join(f"word{i}" for i in range(50))
+        return _R()
+    monkeypatch.setattr(transcribe.subprocess, "run", wordy_tesseract)
+
+    transcribe.process_one(item_id)
+
+    assert len(calls["claude"]) == 1, "note should have forced vision"
+
+    from app.db import get_item
+    assert get_item(item_id)["transcript_source"] == "claude-vision"
+
+
+def test_note_hints_recognized(tmp_data_root: Path) -> None:
+    """Sanity check on the keyword lists — both hint categories must
+    match case-insensitively and on substring."""
+    from app.workers.transcribe import (
+        _note_suggests_complex_layout,
+        _note_suggests_handwriting,
+    )
+    # Handwriting hints.
+    assert _note_suggests_handwriting("journal from today")
+    assert _note_suggests_handwriting("HANDWRITTEN notes")
+    assert _note_suggests_handwriting("my diary entry")
+    assert not _note_suggests_handwriting("random receipt")
+
+    # Complex-layout hints.
+    assert _note_suggests_complex_layout("two-column paper")
+    assert _note_suggests_complex_layout("magazine clipping")
+    assert _note_suggests_complex_layout("news article")
+    assert _note_suggests_complex_layout("case brief")
+    assert not _note_suggests_complex_layout("shopping list")
+
+
+def test_tesseract_image_uses_psm_1_and_falls_back(tmp_data_root: Path,
+                                                    monkeypatch: pytest.MonkeyPatch) -> None:
+    """psm=1 is the primary path. If it comes back suspiciously short
+    (below _TESSERACT_MIN_WORDS), we retry with psm=6 and return the
+    better of the two."""
+    from app.workers import transcribe
+
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kw):
+        calls.append(list(cmd))
+        # psm=1 returns 3 words (short); psm=6 returns 25 (better).
+        psm = cmd[cmd.index("--psm") + 1]
+        class _R:
+            stdout = ("a b c" if psm == "1"
+                       else " ".join(f"w{i}" for i in range(25)))
+        return _R()
+
+    monkeypatch.setattr(transcribe.shutil, "which", lambda x: f"/usr/bin/{x}")
+    monkeypatch.setattr(transcribe.subprocess, "run", fake_run)
+
+    result = transcribe._tesseract_image(tmp_data_root / "any.jpg")
+
+    # Two invocations: psm=1 first, then psm=6 fallback.
+    assert len(calls) == 2
+    assert calls[0][-1] == "1"
+    assert calls[1][-1] == "6"
+    # Returned the fallback output because it had more words.
+    assert "w0" in result
+
+
 def test_process_one_marks_failed_on_error(worker_env, tmp_data_root: Path,
                                              monkeypatch: pytest.MonkeyPatch) -> None:
     transcribe, calls = worker_env
