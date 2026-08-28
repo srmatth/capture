@@ -1,0 +1,18 @@
+services:
+  capture:
+    build: .
+    container_name: capture
+    restart: unless-stopped
+    # Host network so it inherits systemd-resolved's *.matthewshome
+    # routing domain and can reach ntfy/other local services if
+    # extensions need to. Also sidesteps Docker DNS quirks for Caddy
+    # proxying to localhost:8090.
+    network_mode: host
+    environment:
+      TZ: America/Los_Angeles
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      QDRANT_URL: http://127.0.0.1:6333
+      DATA_ROOT: /srv/data/capture
+      LIBRARY_DB: /srv/data/capture/library.db
+    volumes:
+      - /srv/data/capture:/srv/data/capture

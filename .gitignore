@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.ruff_cache/
+.mypy_cache/
+.DS_Store
+
+# Local data / secrets — never in repo.
+data/
+secrets/
+*.env
+!*.env.example
+
+# uv lockfile is committed intentionally in application repos.
