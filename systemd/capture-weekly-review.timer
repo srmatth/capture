@@ -1,0 +1,12 @@
+[Unit]
+Description=Sunday-evening weekly capture review digest
+
+[Timer]
+# Sunday 21:00 local time (the system TZ is America/Los_Angeles per
+# Phase 0 Step 1, so this is 21:00 PT with DST handled automatically).
+OnCalendar=Sun *-*-* 21:00:00
+Persistent=false
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target

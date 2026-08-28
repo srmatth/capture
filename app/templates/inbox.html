@@ -1,0 +1,119 @@
+{% extends "_base.html" %}
+{% block title %}Inbox — Capture{% endblock %}
+{% block header %}Inbox{% endblock %}
+{% block content %}
+
+<!-- HTMX for one-click actions without full page reloads. -->
+<script src="https://unpkg.com/htmx.org@2.0.4"
+        integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+"
+        crossorigin="anonymous"></script>
+
+<section class="review-summary">
+  <p>
+    <strong>{{ buckets.needs_review|length }}</strong> in inbox,
+    <strong>{{ buckets.spot_check|length }}</strong> low-confidence spot checks,
+    <strong>{{ buckets.failed|length }}</strong> failed/stuck.
+  </p>
+</section>
+
+{% macro card(row, kind) %}
+  <article class="review-card kind-{{ kind }}" data-item-id="{{ row.id }}">
+    <header>
+      <a class="title" href="/item/{{ row.id }}">{{ row.title or '(untitled)' }}</a>
+      <span class="meta">
+        {{ row.source_kind }}
+        {% if row.confidence is not none %}
+          · confidence {{ '%.2f'|format(row.confidence) }}
+        {% endif %}
+        {% if row.uploaded_at %}
+          · {{ row.uploaded_at[:10] }}
+        {% endif %}
+        {% if row.status in ('failed', 'dead_letter') %}
+          · <span class="status-{{ row.status }}">{{ row.status }}</span>
+          {% if row.retry_count %} · retry {{ row.retry_count }}{% endif %}
+        {% endif %}
+      </span>
+    </header>
+
+    {% if row.one_line_summary %}
+      <p class="summary">{{ row.one_line_summary }}</p>
+    {% endif %}
+
+    {% if row.status in ('failed', 'dead_letter') %}
+      <pre class="error">{{ row.error_message }}</pre>
+      <div class="actions">
+        <button hx-post="/inbox/{{ row.id }}/retry"
+                hx-target="closest .review-card"
+                hx-swap="outerHTML">Retry</button>
+        <button hx-post="/inbox/{{ row.id }}/delete"
+                hx-target="closest .review-card"
+                hx-swap="outerHTML"
+                hx-confirm="Delete this item?">Delete</button>
+      </div>
+    {% else %}
+      <div class="actions">
+        <form hx-post="/inbox/{{ row.id }}/move"
+              hx-target="closest .review-card"
+              hx-swap="outerHTML"
+              class="move-form">
+          <select name="path">
+            {% for p in taxonomy %}
+              <option value="{{ p }}"
+                      {% if p == row.path %}selected{% endif %}>{{ p }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit">Move</button>
+        </form>
+        {% if kind == 'spot_check' %}
+          <button hx-post="/inbox/{{ row.id }}/accept"
+                  hx-target="closest .review-card"
+                  hx-swap="outerHTML"
+                  title="Confirm this filing is correct">Accept</button>
+        {% endif %}
+        <button hx-post="/inbox/{{ row.id }}/delete"
+                hx-target="closest .review-card"
+                hx-swap="outerHTML"
+                hx-confirm="Delete this item?">Delete</button>
+      </div>
+    {% endif %}
+  </article>
+{% endmacro %}
+
+{% if buckets.needs_review %}
+  <section>
+    <h2>Needs review (inbox/)</h2>
+    <p class="section-hint">
+      The classifier couldn't place these. File them manually or delete.
+    </p>
+    {% for row in buckets.needs_review %}{{ card(row, 'inbox') }}{% endfor %}
+  </section>
+{% endif %}
+
+{% if buckets.spot_check %}
+  <section>
+    <h2>Spot check (confidence &lt; {{ '%.2f'|format(spot_check_threshold) }})</h2>
+    <p class="section-hint">
+      Filed automatically but with low confidence. Confirm or override.
+    </p>
+    {% for row in buckets.spot_check %}{{ card(row, 'spot_check') }}{% endfor %}
+  </section>
+{% endif %}
+
+{% if buckets.failed %}
+  <section>
+    <h2>Failed / stuck</h2>
+    <p class="section-hint">
+      Items whose pipeline stage errored. Retry after fixing the root cause,
+      or delete.
+    </p>
+    {% for row in buckets.failed %}{{ card(row, 'failed') }}{% endfor %}
+  </section>
+{% endif %}
+
+{% if not buckets.needs_review and not buckets.spot_check and not buckets.failed %}
+  <p class="empty-state">
+    Nothing to review. Everything's filed cleanly.
+  </p>
+{% endif %}
+
+{% endblock %}

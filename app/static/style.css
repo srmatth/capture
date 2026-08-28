@@ -165,3 +165,63 @@ a.tag:hover { color: var(--fg); border-color: var(--fg); }
 
 .taxonomy dt { color: var(--fg); font-weight: 500; margin-top: .5rem; }
 .taxonomy dd { margin: 0 0 .25rem 1rem; color: var(--muted); }
+
+/* ---------- Inbox / review ---------- */
+
+.review-summary { margin: 1rem 0; }
+.section-hint { color: var(--muted); font-size: .9rem; margin-top: -.25rem; }
+
+.review-card {
+  padding: 1rem;
+  margin-bottom: .75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.review-card.kind-inbox { border-left: 3px solid var(--accent); }
+.review-card.kind-spot_check { border-left: 3px solid #eab308; }
+.review-card.kind-failed { border-left: 3px solid var(--danger); }
+.review-card.resolved {
+  border: 1px dashed var(--muted); text-align: center; padding: .5rem;
+  color: var(--muted);
+}
+.review-card header {
+  display: flex; flex-direction: column; gap: .25rem;
+}
+.review-card .title {
+  color: var(--fg); font-size: 1rem; font-weight: 500;
+  text-decoration: none;
+}
+.review-card .meta { color: var(--muted); font-size: .85rem; }
+.review-card .summary { margin: .5rem 0; }
+.review-card pre.error {
+  background: var(--border); color: var(--danger);
+  padding: .5rem; border-radius: 6px; font-size: .8rem;
+  white-space: pre-wrap; word-wrap: break-word;
+  max-height: 6em; overflow: auto;
+}
+.review-card .actions {
+  display: flex; gap: .5rem; margin-top: .75rem; flex-wrap: wrap;
+  align-items: center;
+}
+.review-card .actions button, .review-card .move-form button {
+  padding: .4rem .8rem;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: transparent; color: var(--fg); font: inherit; cursor: pointer;
+}
+.review-card .move-form {
+  display: flex; gap: .35rem; align-items: center;
+}
+.review-card .move-form select {
+  padding: .4rem; border: 1px solid var(--border); border-radius: 6px;
+  background: transparent; color: var(--fg); font: inherit;
+}
+.review-card .badge {
+  display: inline-block;
+  padding: .2rem .6rem; border-radius: 999px;
+  background: var(--border); color: var(--muted); font-size: .85rem;
+}
+
+.empty-state {
+  color: var(--muted); text-align: center; padding: 3rem 1rem;
+  font-size: 1.1rem;
+}

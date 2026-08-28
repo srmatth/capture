@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly capture review digest -> ntfy
+OnFailure=notify-fail@%n.service
+
+[Service]
+Type=oneshot
+Environment=DATA_ROOT=/srv/data/capture
+Environment=LIBRARY_DB=/srv/data/capture/library.db
+EnvironmentFile=%h/.config/systemd/user/ntfy.env
+ExecStart=%h/.local/bin/uv run --project /srv/capture --no-dev python -m app.tasks.weekly_digest

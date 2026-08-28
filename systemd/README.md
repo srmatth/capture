@@ -5,18 +5,23 @@ exists and the app is running.
 
 ```bash
 mkdir -p ~/.config/systemd/user
-cp systemd/*.service systemd/*.path ~/.config/systemd/user/
+cp systemd/*.service systemd/*.path systemd/*.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now \
   capture-transcribe.path \
   capture-classify.path \
   capture-embed.path \
-  capture-web.service
+  capture-web.service \
+  capture-weekly-review.timer
 ```
 
 The `.service` files above are all `Type=oneshot` except `capture-web.service`,
 which is `Type=simple` and runs uvicorn under a supervisor loop with
 `Restart=on-failure`. That's the always-on process.
+
+`capture-weekly-review.timer` fires Sunday 21:00 local (the system TZ is
+America/Los_Angeles per Phase 0). Sends a push to ntfy `me` with the
+week's filing summary + counts still needing review.
 
 Notes:
 
