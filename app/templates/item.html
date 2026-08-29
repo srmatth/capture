@@ -50,13 +50,6 @@
   {% endif %}
 </section>
 
-{% if transcript %}
-<section class="item-transcript">
-  <h2>Transcript</h2>
-  <pre>{{ transcript }}</pre>
-</section>
-{% endif %}
-
 <section class="item-actions">
   <h2>Actions</h2>
   <form method="post" action="/item/{{ row.id }}/move" class="action-row">
@@ -101,6 +94,15 @@
     <button type="submit" onclick="return confirm('Soft-delete this item?')">Delete</button>
   </form>
 </section>
+
+{% if transcript %}
+<section class="item-transcript">
+  <details>
+    <summary><h2>Transcript ({{ transcript|length }} chars)</h2></summary>
+    <pre>{{ transcript }}</pre>
+  </details>
+</section>
+{% endif %}
 
 {% if related %}
 <section class="item-related">

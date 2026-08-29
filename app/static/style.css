@@ -176,6 +176,16 @@ a.tag:hover { color: var(--fg); border-color: var(--fg); }
   white-space: pre-wrap; word-wrap: break-word;
   padding: 1rem; background: var(--border); border-radius: var(--radius);
   font-family: monospace; font-size: .9rem;
+  margin-top: .5rem;
+}
+/* Collapsible transcript: keep the disclosure triangle visible but let the
+   h2 sit inline with it so the header looks like a normal section title. */
+.item-transcript summary {
+  cursor: pointer; user-select: none;
+  list-style-position: outside;
+}
+.item-transcript summary h2 {
+  display: inline; margin: 0; font-size: 1.1rem;
 }
 
 .item-actions .action-row {
