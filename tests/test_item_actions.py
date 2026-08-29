@@ -256,6 +256,63 @@ def test_retranscribe_audio_rejected(tmp_data_root: Path) -> None:
     assert "audio" in r.text.lower()
 
 
+def test_retranscribe_with_force_ocr_reruns_pdf(
+    tmp_data_root: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /item/<id>/retranscribe?with=force-ocr should call
+    transcribe_pdf with force_ocr=True and update the transcript."""
+    from app.config import CONFIG
+    from app.db import init_db, insert_item, update_item
+    from app.workers import classify, embed, transcribe
+
+    init_db()
+    item_id = "01FOO0000000000000000000A"
+    insert_item(item_id=item_id, source_kind="pdf",
+                 original_filename="printed.pdf",
+                 mime_type="application/pdf", size_bytes=1)
+    (CONFIG.data_root / "media" / "articles").mkdir(parents=True, exist_ok=True)
+    (CONFIG.data_root / "media" / "articles" / f"{item_id}.pdf").write_bytes(b"%PDF")
+    (CONFIG.data_root / "processed" / "media" / "articles").mkdir(parents=True, exist_ok=True)
+    (CONFIG.data_root / "processed" / "media" / "articles" / f"{item_id}.txt").write_text("stale")
+    update_item(item_id, status="embedded", path="media/articles",
+                 final_filename=f"{item_id}.pdf", title="Printed article",
+                 transcript_path=f"processed/media/articles/{item_id}.txt",
+                 transcript_source="tesseract-pdf")
+
+    # Stub the actual OCR + downstream stages so the test is fast.
+    calls = {}
+    def fake_transcribe_pdf(pdf_path, item_id_, note="", force_ocr=False):
+        calls["force_ocr"] = force_ocr
+        return "REFRESHED FROM FORCE-OCR", "tesseract-pdf-forced"
+
+    monkeypatch.setattr(transcribe, "transcribe_pdf", fake_transcribe_pdf)
+    monkeypatch.setattr(classify, "process_one", lambda _id: None)
+    monkeypatch.setattr(embed, "process_one", lambda _id: None)
+
+    r = _client().post(f"/item/{item_id}/retranscribe?with=force-ocr")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["transcript_source"] == "tesseract-pdf-forced"
+
+    assert calls["force_ocr"] is True
+
+    from app.db import get_item
+    row = get_item(item_id)
+    assert row["transcript_source"] == "tesseract-pdf-forced"
+    assert (CONFIG.data_root / row["transcript_path"]).read_text() == "REFRESHED FROM FORCE-OCR"
+
+
+def test_retranscribe_force_ocr_rejected_for_images(tmp_data_root: Path) -> None:
+    """force-ocr is a PDF-specific concept; asking for it on an image
+    item should 409 rather than silently falling back to tesseract."""
+    item_id = "01FOO0000000000000000000B"
+    _seed_classified_item(item_id=item_id)  # image
+
+    r = _client().post(f"/item/{item_id}/retranscribe?with=force-ocr")
+    assert r.status_code == 409
+    assert "pdf-only" in r.text.lower() or "pdf" in r.text.lower()
+
+
 def test_retranscribe_pdf_without_batch_pages_rejects_vision(
     tmp_data_root: Path,
 ) -> None:

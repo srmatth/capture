@@ -80,6 +80,14 @@
         <button type="submit">Re-transcribe with Tesseract (revert)</button>
       </form>
     {% endif %}
+    {# Force-OCR is PDF-only: bypasses the existing text layer so
+       hybrid printed-from-web PDFs re-OCR from image content. #}
+    {% if row.source_kind == 'pdf' and row.transcript_source != 'tesseract-pdf-forced' %}
+      <form method="post" action="/item/{{ row.id }}/retranscribe?with=force-ocr"
+            class="action-row">
+        <button type="submit">Re-transcribe with force-OCR (ignore text layer)</button>
+      </form>
+    {% endif %}
   {% endif %}
 
   <a class="action-download" href="/item/{{ row.id }}/raw" download>Download raw</a>

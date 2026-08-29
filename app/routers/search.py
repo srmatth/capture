@@ -269,11 +269,17 @@ async def item_retranscribe(
     with_: str = Query("vision", alias="with"),
 ):
     """Re-run the transcribe stage on this item. Query string:
-        ?with=vision    force Claude vision (default; the common case
-                        when Tesseract clearly failed on a multi-column
-                        or unusual-font document)
-        ?with=tesseract force local OCR (revert a vision transcript that
-                        went wrong, or save API cost on a redo)
+        ?with=vision      force Claude vision (default; the common case
+                          when Tesseract clearly failed on a multi-column
+                          or unusual-font document)
+        ?with=tesseract   force local OCR (revert a vision transcript
+                          that went wrong, or save API cost on a redo)
+        ?with=force-ocr   PDF-only. Re-runs OCRmyPDF with force_ocr=True,
+                          bypassing any existing text layer. The fix
+                          for 'hybrid' PDFs printed from a website,
+                          where the text layer covers only nav/metadata
+                          boilerplate and the article body is embedded
+                          as an image.
 
     Then reclassify + re-embed so search results reflect the new text.
     """
@@ -329,8 +335,22 @@ async def item_retranscribe(
             text, source_tag = transcribe.transcribe_pdf(raw, item_id, note="")
         else:
             raise HTTPException(409, f"unsupported source_kind: {kind}")
+    elif with_ == "force-ocr":
+        if kind != "pdf":
+            raise HTTPException(
+                409,
+                "force-ocr is PDF-only; image items should use ?with=tesseract",
+            )
+        if not raw.exists():
+            raise HTTPException(404, "source PDF not found")
+        try:
+            text, source_tag = transcribe.transcribe_pdf(
+                raw, item_id, note="", force_ocr=True,
+            )
+        except Exception as e:
+            raise HTTPException(500, f"force-ocr retranscribe failed: {e!r}") from e
     else:
-        raise HTTPException(400, "with= must be 'vision' or 'tesseract'")
+        raise HTTPException(400, "with= must be 'vision', 'tesseract', or 'force-ocr'")
 
     # Write the new transcript in place.
     transcript_path = CONFIG.data_root / row["transcript_path"] if row["transcript_path"] else None

@@ -277,6 +277,114 @@ def test_note_hints_recognized(tmp_data_root: Path) -> None:
     assert not _note_suggests_complex_layout("shopping list")
 
 
+def test_hybrid_pdf_auto_falls_back_to_force_ocr(
+    tmp_data_root: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A PDF whose first OCRmyPDF pass yields suspiciously thin text
+    for its file size should auto-fall-back to force_ocr=True and
+    return the tesseract-pdf-forced source tag."""
+    from app.workers import transcribe
+
+    # Fake PDF: 100KB on disk. That plus a ~200-char extract puts us
+    # at 2 chars/KB, well below the 20 threshold, so hybrid fallback fires.
+    fake_pdf = tmp_data_root / "hybrid.pdf"
+    fake_pdf.write_bytes(b"x" * 100_000)
+
+    ocr_calls: list[dict] = []
+
+    def fake_ocrmypdf_ocr(src, dst, **kw):
+        ocr_calls.append({"src": str(src), "dst": str(dst),
+                           "force_ocr": kw.get("force_ocr"),
+                           "skip_text": kw.get("skip_text")})
+        Path(dst).write_bytes(b"ocr'd pdf")
+
+    def fake_pdftotext(cmd, **kw):
+        # First call (force_ocr=False): return short "Home | About" text.
+        # Second call (force_ocr=True): return long article text.
+        forced = ".force-ocr.pdf" in cmd[-2]
+        text = ("Home | About | Contact" if not forced else
+                 "This is the real article body that force-OCR recovered. " * 20)
+        class _R:
+            stdout = text
+        return _R()
+
+    monkeypatch.setattr(transcribe.ocrmypdf, "ocr", fake_ocrmypdf_ocr)
+    monkeypatch.setattr(transcribe.shutil, "which", lambda x: f"/usr/bin/{x}")
+    monkeypatch.setattr(transcribe.subprocess, "run", fake_pdftotext)
+
+    text, tag = transcribe.transcribe_pdf(fake_pdf, "01HYB000000000000000000AAA")
+
+    # Ran OCRmyPDF twice: once with skip_text=True, then force_ocr=True.
+    assert len(ocr_calls) == 2
+    assert ocr_calls[0]["force_ocr"] is False
+    assert ocr_calls[1]["force_ocr"] is True
+    # Returned the force-OCR result, tagged accordingly.
+    assert tag == "tesseract-pdf-forced"
+    assert "real article body" in text
+
+
+def test_normal_pdf_does_not_force_ocr(tmp_data_root: Path,
+                                         monkeypatch: pytest.MonkeyPatch) -> None:
+    """A normal text-heavy PDF should stop after one OCRmyPDF pass."""
+    from app.workers import transcribe
+
+    fake_pdf = tmp_data_root / "textheavy.pdf"
+    fake_pdf.write_bytes(b"x" * 100_000)   # 100KB
+
+    ocr_calls: list[dict] = []
+
+    def fake_ocrmypdf_ocr(src, dst, **kw):
+        ocr_calls.append(kw)
+        Path(dst).write_bytes(b"ocr'd pdf")
+
+    def fake_pdftotext(cmd, **kw):
+        # Return plenty of text — well above the 20-chars-per-KB threshold.
+        class _R:
+            stdout = "This is a text-heavy PDF with lots of extracted content. " * 100
+        return _R()
+
+    monkeypatch.setattr(transcribe.ocrmypdf, "ocr", fake_ocrmypdf_ocr)
+    monkeypatch.setattr(transcribe.shutil, "which", lambda x: f"/usr/bin/{x}")
+    monkeypatch.setattr(transcribe.subprocess, "run", fake_pdftotext)
+
+    text, tag = transcribe.transcribe_pdf(fake_pdf, "01TXT000000000000000000AAA")
+
+    assert len(ocr_calls) == 1, "no fallback expected for text-heavy PDF"
+    assert tag == "tesseract-pdf"
+
+
+def test_transcribe_pdf_explicit_force_ocr(tmp_data_root: Path,
+                                             monkeypatch: pytest.MonkeyPatch) -> None:
+    """Passing force_ocr=True from a caller (e.g. the retranscribe
+    endpoint) skips the sniff and goes straight to force_ocr."""
+    from app.workers import transcribe
+
+    fake_pdf = tmp_data_root / "any.pdf"
+    fake_pdf.write_bytes(b"x" * 50_000)
+
+    ocr_calls: list[dict] = []
+
+    def fake_ocrmypdf_ocr(src, dst, **kw):
+        ocr_calls.append(kw)
+        Path(dst).write_bytes(b"forced")
+
+    monkeypatch.setattr(transcribe.ocrmypdf, "ocr", fake_ocrmypdf_ocr)
+    monkeypatch.setattr(transcribe.shutil, "which", lambda x: f"/usr/bin/{x}")
+    monkeypatch.setattr(
+        transcribe.subprocess, "run",
+        lambda *a, **kw: type("R", (), {"stdout": "forced text"})(),
+    )
+
+    text, tag = transcribe.transcribe_pdf(
+        fake_pdf, "01FOR000000000000000000AAA", force_ocr=True,
+    )
+
+    # Exactly one OCRmyPDF call, and it was the forced one.
+    assert len(ocr_calls) == 1
+    assert ocr_calls[0]["force_ocr"] is True
+    assert tag == "tesseract-pdf-forced"
+
+
 def test_tesseract_image_uses_psm_1_and_falls_back(tmp_data_root: Path,
                                                     monkeypatch: pytest.MonkeyPatch) -> None:
     """psm=1 is the primary path. If it comes back suspiciously short

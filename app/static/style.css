@@ -162,6 +162,7 @@ a.tag:hover { color: var(--fg); border-color: var(--fg); }
 .transcript-src-tesseract,
 .transcript-src-tesseract-batch,
 .transcript-src-tesseract-pdf { background: #dbeafe; color: #1e40af; }
+.transcript-src-tesseract-pdf-forced { background: #a7f3d0; color: #065f46; }
 .transcript-src-claude-vision,
 .transcript-src-claude-vision-batch { background: #fef3c7; color: #92400e; }
 .transcript-src-whisper\.cpp { background: #ddd6fe; color: #5b21b6; }

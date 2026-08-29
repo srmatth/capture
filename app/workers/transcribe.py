@@ -227,7 +227,55 @@ def transcribe_image(path: Path, note: str = "") -> tuple[str, str]:
     return _tesseract_image(path), "tesseract"
 
 
-def transcribe_pdf(pdf_path: Path, item_id: str, note: str = "") -> tuple[str, str]:
+# Ratio below which a PDF's extracted text looks "too thin" for its
+# file size, suggesting it's a hybrid (image body + thin text layer).
+# Empirical: pure-text PDFs typically yield >100 chars/KB; scanned PDFs
+# with a slim navigation-metadata layer come in well under 20.
+_HYBRID_PDF_CHARS_PER_KB_THRESHOLD = 20
+
+
+def _ocr_pdf_then_extract(pdf_path: Path, *, force_ocr: bool) -> str:
+    """Run OCRmyPDF then pdftotext, return the extracted text.
+
+    force_ocr=False is the fast path: OCRmyPDF skips pages that already
+    have a text layer and only OCRs image-only pages. Right for the
+    common case (scanned document with no existing text).
+
+    force_ocr=True runs OCR on every page, discarding any existing
+    text layer. This is the fix for 'hybrid' PDFs — printed-from-web
+    pages that carry a slim text layer with nav/metadata boilerplate
+    but embed the actual article body as an image.
+    """
+    suffix = ".force-ocr.pdf" if force_ocr else ".ocr.pdf"
+    ocr_pdf = pdf_path.with_name(pdf_path.stem + suffix)
+    ocrmypdf.ocr(
+        pdf_path, ocr_pdf,
+        force_ocr=force_ocr,
+        skip_text=not force_ocr,
+        language="eng",
+        progress_bar=False,
+    )
+    return _run(
+        ["pdftotext", "-layout", str(ocr_pdf), "-"],
+        capture_output=True, text=True, timeout=180,
+    ).stdout or ""
+
+
+def _looks_like_hybrid_pdf(pdf_path: Path, extracted_text: str) -> bool:
+    """Heuristic: was the initial extraction suspiciously thin for the
+    file size? Hybrid PDFs (image body + thin text layer) have low
+    chars-per-KB because pdftotext only saw the boilerplate."""
+    try:
+        size_kb = pdf_path.stat().st_size / 1024
+    except OSError:
+        return False
+    if size_kb < 20:   # tiny PDFs are noise either way; skip the check
+        return False
+    return (len(extracted_text) / size_kb) < _HYBRID_PDF_CHARS_PER_KB_THRESHOLD
+
+
+def transcribe_pdf(pdf_path: Path, item_id: str, note: str = "",
+                    force_ocr: bool = False) -> tuple[str, str]:
     """PDF transcribe.
 
     If a companion inbox/image/<id>/ directory exists, this PDF is a
@@ -239,6 +287,20 @@ def transcribe_pdf(pdf_path: Path, item_id: str, note: str = "") -> tuple[str, s
     Otherwise (a genuine PDF upload), we run OCRmyPDF → pdftotext.
     pdftotext gets `-layout` so multi-column PDFs preserve their
     reading order — the equivalent of Tesseract's psm=1 for images.
+
+    Two failure modes handled here:
+    - Pure image PDFs (scans): OCRmyPDF with skip_text=True runs
+      Tesseract on each page, adds a text layer, pdftotext reads it.
+    - Hybrid PDFs (printed-from-website): the source has a thin text
+      layer covering only nav/metadata boilerplate. skip_text sees the
+      text and doesn't OCR, so we get "Home | About | Privacy" and no
+      article body. After the first extraction we check the
+      chars-per-KB ratio; below the threshold we re-run with
+      force_ocr=True, which discards the existing text layer and
+      re-OCRs everything.
+
+    Caller can also pass force_ocr=True explicitly (used by the
+    /item/<id>/retranscribe?with=force-ocr endpoint).
     """
     pages_dir = CONFIG.data_root / "inbox" / "image" / item_id
     if pages_dir.is_dir():
@@ -250,16 +312,16 @@ def transcribe_pdf(pdf_path: Path, item_id: str, note: str = "") -> tuple[str, s
             return "\n---page break---\n".join(parts), "tesseract-batch"
 
     # Real PDF — OCRmyPDF path.
-    ocr_pdf = pdf_path.with_name(pdf_path.stem + ".ocr.pdf")
-    ocrmypdf.ocr(pdf_path, ocr_pdf, force_ocr=False, skip_text=True,
-                 language="eng", progress_bar=False)
-    # `-layout` preserves column order in the output. Without it,
-    # pdftotext reads a 2-column paper straight across the page like
-    # Tesseract's old psm=6, producing salad.
-    text = _run(
-        ["pdftotext", "-layout", str(ocr_pdf), "-"],
-        capture_output=True, text=True, timeout=180,
-    ).stdout
+    if force_ocr:
+        return _ocr_pdf_then_extract(pdf_path, force_ocr=True), "tesseract-pdf-forced"
+
+    text = _ocr_pdf_then_extract(pdf_path, force_ocr=False)
+    if _looks_like_hybrid_pdf(pdf_path, text):
+        # Auto-fallback: text was suspiciously thin for the file size.
+        # Re-run with force_ocr to bypass any existing text layer.
+        # More expensive but correct.
+        text = _ocr_pdf_then_extract(pdf_path, force_ocr=True)
+        return text, "tesseract-pdf-forced"
     return text, "tesseract-pdf"
 
 
