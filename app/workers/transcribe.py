@@ -341,13 +341,45 @@ def _find_source(item_id: str, kind: str) -> Path:
 # ---------- Main loop ----------
 
 
+def _items_needing_retranscribe() -> list[dict]:
+    """Fetch every item with retranscribe_hint set. Used by main() to
+    pick up async retranscribe requests posted from the /retranscribe
+    endpoint."""
+    from ..db import _connect
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM items "
+            "WHERE deleted_at IS NULL AND retranscribe_hint IS NOT NULL "
+            "ORDER BY uploaded_at"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def _find_raw_for_reprocess(item_id: str, kind: str, row: dict) -> Path:
+    """For an already-classified item, the raw file lives at
+    <path>/<final_filename>, not in inbox/. Retranscribe needs to find it
+    there. Falls through to the normal inbox lookup if path/filename
+    aren't set (i.e., the item hasn't been classified yet)."""
+    if row.get("path") and row.get("final_filename"):
+        candidate = CONFIG.data_root / row["path"] / row["final_filename"]
+        if candidate.exists():
+            return candidate
+    return _find_source(item_id, kind)
+
+
 def process_one(item_id: str) -> None:
     row = get_item(item_id)
     if row is None:
         raise ValueError(f"item {item_id} not in DB")
     kind = row["source_kind"]
     note = row["upload_note"] or ""
-    src = _find_source(item_id, kind)
+    hint = row["retranscribe_hint"] or ""     # empty => normal routing
+
+    # For a retranscribe request the raw file is under <path>/, not inbox/.
+    if hint:
+        src = _find_raw_for_reprocess(item_id, kind, row)
+    else:
+        src = _find_source(item_id, kind)
 
     update_item(item_id, status="transcribing")
 
@@ -355,7 +387,9 @@ def process_one(item_id: str) -> None:
     processed_dir.mkdir(parents=True, exist_ok=True)
     out_txt = processed_dir / f"{item_id}.txt"
 
-    if kind == "audio":
+    if hint:
+        text, source_tag = _dispatch_hinted(hint, src, item_id, kind)
+    elif kind == "audio":
         text, source_tag = transcribe_audio(src), "whisper.cpp"
     elif kind == "image":
         text, source_tag = transcribe_image(src, note)
@@ -373,6 +407,8 @@ def process_one(item_id: str) -> None:
         transcript_path=str(out_txt.relative_to(CONFIG.data_root)),
         transcript_char_count=len(text),
         transcript_source=source_tag,
+        # Clear the hint so subsequent worker fires don't re-retranscribe.
+        retranscribe_hint=None,
     )
 
     # Hand off to classify.
@@ -381,16 +417,58 @@ def process_one(item_id: str) -> None:
     (queue / item_id).touch()
 
 
+def _dispatch_hinted(hint: str, src: Path, item_id: str,
+                      kind: str) -> tuple[str, str]:
+    """Route a retranscribe request based on the explicit hint the API
+    endpoint stashed in items.retranscribe_hint."""
+    if hint == "vision":
+        # For a batch upload, page images live under <path>/<id>.pages/.
+        row = get_item(item_id) or {}
+        path = row.get("path") or "inbox"
+        batch_dir = CONFIG.data_root / path / f"{item_id}.pages"
+        if batch_dir.is_dir():
+            pages = sorted(batch_dir.glob("page-*.*"))
+            if pages:
+                return _claude_transcribe(pages), "claude-vision-batch"
+        if kind == "image":
+            return _claude_transcribe([src]), "claude-vision"
+        raise RuntimeError(
+            f"cannot vision-retranscribe kind={kind!r}: no source images available"
+        )
+    if hint == "tesseract":
+        if kind == "image":
+            return transcribe_image(src, note="")
+        if kind == "pdf":
+            return transcribe_pdf(src, item_id, note="")
+        raise RuntimeError(f"cannot tesseract-retranscribe kind={kind!r}")
+    if hint == "force-ocr":
+        if kind != "pdf":
+            raise RuntimeError(
+                f"force-ocr is PDF-only, got kind={kind!r}"
+            )
+        return transcribe_pdf(src, item_id, note="", force_ocr=True)
+    raise RuntimeError(f"unknown retranscribe hint {hint!r}")
+
+
 def main() -> int:
-    # 'queued' = fresh from upload; 'failed' = retry-eligible per the
-    # exponential-backoff schedule in app.retry. Items in 'dead_letter'
-    # are terminal and never picked up automatically.
+    # Three sources of work:
+    #   'queued'        fresh from upload
+    #   'failed'        retry-eligible per app.retry backoff schedule
+    #   retranscribe    items with retranscribe_hint set, regardless of status
+    # Items in 'dead_letter' without a hint are terminal and never
+    # picked up automatically.
     candidates = list_items_by_statuses(["queued", "failed"])
     pending = [
         row for row in candidates
         if row["status"] == "queued"
         or is_ready_for_retry(row["retry_count"] or 0, row["last_error_at"])
     ]
+    # Retranscribe requests. A queued/failed item that ALSO has a hint
+    # was already picked up above; skip dupes.
+    pending_ids = {row["id"] for row in pending}
+    for row in _items_needing_retranscribe():
+        if row["id"] not in pending_ids:
+            pending.append(row)
     if not pending:
         return 0
     first_error: Exception | None = None

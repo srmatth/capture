@@ -201,39 +201,59 @@ def test_item_reclassify_404(tmp_data_root: Path) -> None:
 # ---------- retranscribe ----------
 
 
-def test_retranscribe_with_vision_calls_claude_and_updates_source(
-    tmp_data_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """POST /item/<id>/retranscribe?with=vision should call Claude, update
-    the transcript file, and set transcript_source to claude-vision."""
-    from app.workers import classify, embed, transcribe
-
+def test_retranscribe_with_vision_queues_hint(tmp_data_root: Path) -> None:
+    """POST /item/<id>/retranscribe?with=vision should return immediately
+    with a job handle after setting retranscribe_hint. The transcribe
+    worker (not the endpoint) does the actual work asynchronously."""
     item_id = "01RTV0000000000000000000A"
     _seed_classified_item(item_id=item_id)  # source_kind='image', tesseract
-
-    calls: list[list[str]] = []
-    monkeypatch.setattr(
-        transcribe, "_claude_transcribe",
-        lambda paths: (calls.append([p.name for p in paths]) or "REVISED TEXT")
-        or "REVISED TEXT",
-    )
-    # Don't actually re-run classify / embed — we just want to verify
-    # transcribe part fires and the DB updates.
-    monkeypatch.setattr(classify, "process_one", lambda _id: None)
-    monkeypatch.setattr(embed, "process_one", lambda _id: None)
 
     r = _client().post(f"/item/{item_id}/retranscribe?with=vision")
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["retranscribed"] is True
-    assert body["transcript_source"] == "claude-vision"
+    assert body["queued"] is True
+    assert body["with"] == "vision"
+    assert body["status_url"] == f"/jobs/{item_id}"
 
-    from app.config import CONFIG
     from app.db import get_item
     row = get_item(item_id)
+    assert row["retranscribe_hint"] == "vision"
+    # Status rewound so the worker picks it up.
+    assert row["status"] == "queued"
+
+
+def test_retranscribe_worker_processes_hint(tmp_data_root: Path,
+                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    """The transcribe worker picks up items with retranscribe_hint set,
+    dispatches to the right method, and clears the hint on success."""
+    from app.config import CONFIG
+    from app.db import get_item
+    from app.workers import transcribe
+
+    item_id = "01RTW0000000000000000000A"
+    _seed_classified_item(item_id=item_id)  # image, path='notes/personal'
+
+    # Queue a vision retranscribe.
+    _client().post(f"/item/{item_id}/retranscribe?with=vision")
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        transcribe, "_claude_transcribe",
+        lambda paths: (calls.append([p.name for p in paths]) or "REVISED") or "REVISED",
+    )
+
+    # Worker sweep. Should find the hinted item and process it.
+    transcribe.main()
+
+    from app.db import get_item as _get_item
+    row = _get_item(item_id)
     assert row["transcript_source"] == "claude-vision"
-    # Transcript file updated.
-    assert (CONFIG.data_root / row["transcript_path"]).read_text() == "REVISED TEXT"
+    assert row["retranscribe_hint"] is None, "hint should be cleared on success"
+    assert row["status"] == "transcribed"
+
+    # Handoff marker written for the classify stage.
+    assert (CONFIG.data_root / "queue" / "classify" / item_id).exists()
+
     # Claude was called with the raw image.
     assert calls == [[f"{item_id}.jpg"]]
 
@@ -256,14 +276,11 @@ def test_retranscribe_audio_rejected(tmp_data_root: Path) -> None:
     assert "audio" in r.text.lower()
 
 
-def test_retranscribe_with_force_ocr_reruns_pdf(
-    tmp_data_root: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """POST /item/<id>/retranscribe?with=force-ocr should call
-    transcribe_pdf with force_ocr=True and update the transcript."""
+def test_retranscribe_with_force_ocr_queues_hint(tmp_data_root: Path) -> None:
+    """POST /item/<id>/retranscribe?with=force-ocr should queue the hint,
+    not run OCR synchronously."""
     from app.config import CONFIG
-    from app.db import init_db, insert_item, update_item
-    from app.workers import classify, embed, transcribe
+    from app.db import get_item, init_db, insert_item, update_item
 
     init_db()
     item_id = "01FOO0000000000000000000A"
@@ -272,34 +289,20 @@ def test_retranscribe_with_force_ocr_reruns_pdf(
                  mime_type="application/pdf", size_bytes=1)
     (CONFIG.data_root / "media" / "articles").mkdir(parents=True, exist_ok=True)
     (CONFIG.data_root / "media" / "articles" / f"{item_id}.pdf").write_bytes(b"%PDF")
-    (CONFIG.data_root / "processed" / "media" / "articles").mkdir(parents=True, exist_ok=True)
-    (CONFIG.data_root / "processed" / "media" / "articles" / f"{item_id}.txt").write_text("stale")
     update_item(item_id, status="embedded", path="media/articles",
                  final_filename=f"{item_id}.pdf", title="Printed article",
                  transcript_path=f"processed/media/articles/{item_id}.txt",
                  transcript_source="tesseract-pdf")
 
-    # Stub the actual OCR + downstream stages so the test is fast.
-    calls = {}
-    def fake_transcribe_pdf(pdf_path, item_id_, note="", force_ocr=False):
-        calls["force_ocr"] = force_ocr
-        return "REFRESHED FROM FORCE-OCR", "tesseract-pdf-forced"
-
-    monkeypatch.setattr(transcribe, "transcribe_pdf", fake_transcribe_pdf)
-    monkeypatch.setattr(classify, "process_one", lambda _id: None)
-    monkeypatch.setattr(embed, "process_one", lambda _id: None)
-
     r = _client().post(f"/item/{item_id}/retranscribe?with=force-ocr")
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["transcript_source"] == "tesseract-pdf-forced"
+    assert body["queued"] is True
+    assert body["with"] == "force-ocr"
 
-    assert calls["force_ocr"] is True
-
-    from app.db import get_item
     row = get_item(item_id)
-    assert row["transcript_source"] == "tesseract-pdf-forced"
-    assert (CONFIG.data_root / row["transcript_path"]).read_text() == "REFRESHED FROM FORCE-OCR"
+    assert row["retranscribe_hint"] == "force-ocr"
+    assert row["status"] == "queued"
 
 
 def test_retranscribe_force_ocr_rejected_for_images(tmp_data_root: Path) -> None:

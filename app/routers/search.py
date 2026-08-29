@@ -263,12 +263,21 @@ async def item_move(item_id: str, path: Annotated[str, Form()]):
     return {"moved": True, "from": old_path, "to": path}
 
 
+_VALID_RETRANSCRIBE_HINTS = ("vision", "tesseract", "force-ocr")
+
+
 @router.post("/item/{item_id}/retranscribe")
 async def item_retranscribe(
     item_id: str,
     with_: str = Query("vision", alias="with"),
 ):
-    """Re-run the transcribe stage on this item. Query string:
+    """Queue a retranscribe. Returns immediately; the transcribe worker
+    picks it up on the next fire (path units watch inbox/ so we also
+    touch a marker there to trigger it right away). Downstream stages
+    (classify, embed) chain automatically off the transcribe worker's
+    handoff markers.
+
+    Query string:
         ?with=vision      force Claude vision (default; the common case
                           when Tesseract clearly failed on a multi-column
                           or unusual-font document)
@@ -276,116 +285,59 @@ async def item_retranscribe(
                           that went wrong, or save API cost on a redo)
         ?with=force-ocr   PDF-only. Re-runs OCRmyPDF with force_ocr=True,
                           bypassing any existing text layer. The fix
-                          for 'hybrid' PDFs printed from a website,
-                          where the text layer covers only nav/metadata
-                          boilerplate and the article body is embedded
-                          as an image.
+                          for 'hybrid' PDFs printed from a website.
 
-    Then reclassify + re-embed so search results reflect the new text.
+    Response is a job handle you can poll at /jobs/<id>.
     """
     row = get_item(item_id)
     if row is None or row["deleted_at"]:
         raise HTTPException(404)
+
+    if with_ not in _VALID_RETRANSCRIBE_HINTS:
+        raise HTTPException(400, f"with= must be one of {_VALID_RETRANSCRIBE_HINTS}")
 
     kind = row["source_kind"]
     if kind == "audio":
         raise HTTPException(409, "audio items are Whisper-only; no vision fallback")
     if kind == "plain":
         raise HTTPException(409, "plaintext items have nothing to re-transcribe")
-
-    from ..workers import classify, transcribe
-
-    # Find the source image(s). For batch-uploaded PDFs the individual
-    # page images live under <path>/<id>.pages/ (moved by classify).
-    # For classified image items the raw file itself is <path>/<id>.<ext>.
-    # For genuine PDF uploads: <path>/<id>.pdf plus a Tesseract OCR
-    # sidecar we produced last time.
-    path_dir = CONFIG.data_root / (row["path"] or "inbox")
-    raw = path_dir / (row["final_filename"] or "")
-
-    if with_ == "vision":
-        pages: list[Path] = []
+    if with_ == "force-ocr" and kind != "pdf":
+        raise HTTPException(
+            409,
+            "force-ocr is PDF-only; image items should use ?with=tesseract",
+        )
+    if with_ == "vision" and kind == "pdf":
+        # Same guard as the sync version. Genuine (non-batch) PDFs don't
+        # have companion page images to send to Claude.
+        path_dir = CONFIG.data_root / (row["path"] or "inbox")
         batch_dir = path_dir / f"{item_id}.pages"
-        if batch_dir.is_dir():
-            pages = sorted(batch_dir.glob("page-*.*"))
-        elif kind == "image":
-            pages = [raw]
-        elif kind == "pdf" and raw.exists():
-            # For a genuine (non-batch) PDF we don't have page images.
-            # Would need to render the PDF to images first — non-trivial,
-            # skip for now.
+        if not batch_dir.is_dir():
             raise HTTPException(
                 409,
                 "vision retranscribe not supported for non-batch PDFs; "
-                "the source pages aren't available. Delete and re-upload as "
-                "a multi-page scan if vision quality matters here.",
+                "the source page images aren't available.",
             )
-        if not pages:
-            raise HTTPException(404, "source image(s) not found")
 
-        try:
-            text = transcribe._claude_transcribe(pages)
-            source_tag = "claude-vision-batch" if len(pages) > 1 else "claude-vision"
-        except Exception as e:
-            raise HTTPException(500, f"vision retranscribe failed: {e!r}") from e
-    elif with_ == "tesseract":
-        if kind == "image":
-            text, source_tag = transcribe.transcribe_image(raw, note="")
-        elif kind == "pdf":
-            text, source_tag = transcribe.transcribe_pdf(raw, item_id, note="")
-        else:
-            raise HTTPException(409, f"unsupported source_kind: {kind}")
-    elif with_ == "force-ocr":
-        if kind != "pdf":
-            raise HTTPException(
-                409,
-                "force-ocr is PDF-only; image items should use ?with=tesseract",
-            )
-        if not raw.exists():
-            raise HTTPException(404, "source PDF not found")
-        try:
-            text, source_tag = transcribe.transcribe_pdf(
-                raw, item_id, note="", force_ocr=True,
-            )
-        except Exception as e:
-            raise HTTPException(500, f"force-ocr retranscribe failed: {e!r}") from e
-    else:
-        raise HTTPException(400, "with= must be 'vision', 'tesseract', or 'force-ocr'")
+    # Set the hint and rewind status so the worker picks the item up.
+    # Do NOT clear existing path/final_filename — the raw file stays
+    # where it is, and the retranscribe uses that location.
+    update_item(item_id, retranscribe_hint=with_, status="queued")
 
-    # Write the new transcript in place.
-    transcript_path = CONFIG.data_root / row["transcript_path"] if row["transcript_path"] else None
-    if transcript_path is None:
-        transcript_path = CONFIG.data_root / "processed" / (row["path"] or "inbox") / f"{item_id}.txt"
-        transcript_path.parent.mkdir(parents=True, exist_ok=True)
-    transcript_path.write_text(text)
-    update_item(
-        item_id,
-        transcript_path=str(transcript_path.relative_to(CONFIG.data_root)),
-        transcript_char_count=len(text),
-        transcript_source=source_tag,
-    )
+    # Touch a marker in inbox/<kind>/ so the path unit fires immediately.
+    # The transcribe worker itself checks the DB for retranscribe_hint,
+    # not the marker location, so any inbox path unit fires the whole
+    # scan — this is just to nudge systemd. If path units aren't running
+    # (dev, manual test), the next `uv run python -m app.workers.transcribe`
+    # will pick it up.
+    ping = CONFIG.data_root / "inbox" / kind / f".retranscribe-{item_id}"
+    ping.parent.mkdir(parents=True, exist_ok=True)
+    ping.touch()
 
-    # Re-run classify + embed so search reflects the new text. Both are
-    # idempotent.
-    try:
-        classify.process_one(item_id)
-    except Exception as e:
-        raise HTTPException(500, f"reclassify after retranscribe failed: {e!r}") from e
-    try:
-        from ..workers import embed
-        embed.process_one(item_id)
-    except Exception:
-        # Embed failure is non-fatal — search will fall back to FTS
-        # until the next embed run picks it up.
-        pass
-
-    updated = get_item(item_id)
     return {
-        "retranscribed": True,
+        "queued": True,
+        "id": item_id,
         "with": with_,
-        "transcript_source": source_tag,
-        "path": updated["path"],
-        "confidence": updated["confidence"],
+        "status_url": f"/jobs/{item_id}",
     }
 
 

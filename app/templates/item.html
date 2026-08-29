@@ -68,27 +68,33 @@
   </form>
 
   {% if row.source_kind in ('image', 'pdf') %}
+    {# Retranscribe buttons are async — clicking queues the request
+       and returns immediately. Status updates live in #retranscribe-status.
+       See /static/retranscribe.js for the polling loop. #}
     {% if row.transcript_source and not row.transcript_source.startswith('claude') %}
-      <form method="post" action="/item/{{ row.id }}/retranscribe?with=vision"
-            class="action-row">
-        <button type="submit">Re-transcribe with Claude vision</button>
-      </form>
+      <button type="button" class="retranscribe-btn action-row"
+              data-with="vision" data-item-id="{{ row.id }}">
+        Re-transcribe with Claude vision
+      </button>
     {% endif %}
     {% if row.transcript_source and row.transcript_source.startswith('claude') %}
-      <form method="post" action="/item/{{ row.id }}/retranscribe?with=tesseract"
-            class="action-row">
-        <button type="submit">Re-transcribe with Tesseract (revert)</button>
-      </form>
+      <button type="button" class="retranscribe-btn action-row"
+              data-with="tesseract" data-item-id="{{ row.id }}">
+        Re-transcribe with Tesseract (revert)
+      </button>
     {% endif %}
     {# Force-OCR is PDF-only: bypasses the existing text layer so
        hybrid printed-from-web PDFs re-OCR from image content. #}
     {% if row.source_kind == 'pdf' and row.transcript_source != 'tesseract-pdf-forced' %}
-      <form method="post" action="/item/{{ row.id }}/retranscribe?with=force-ocr"
-            class="action-row">
-        <button type="submit">Re-transcribe with force-OCR (ignore text layer)</button>
-      </form>
+      <button type="button" class="retranscribe-btn action-row"
+              data-with="force-ocr" data-item-id="{{ row.id }}">
+        Re-transcribe with force-OCR (ignore text layer)
+      </button>
     {% endif %}
   {% endif %}
+
+  <div id="retranscribe-status" role="status" aria-live="polite"></div>
+  <script src="/static/retranscribe.js"></script>
 
   <a class="action-download" href="/item/{{ row.id }}/raw" download>Download raw</a>
 

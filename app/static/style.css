@@ -180,10 +180,14 @@ a.tag:hover { color: var(--fg); border-color: var(--fg); }
   margin-top: .5rem;
 }
 /* Collapsible transcript: keep the disclosure triangle visible but let the
-   h2 sit inline with it so the header looks like a normal section title. */
+   h2 sit inline with it so the header looks like a normal section title.
+   list-style-position: inside so the '>' triangle stays within the
+   element bounds; outside was pushing it into the left margin and getting
+   clipped on narrow phone screens. */
 .item-transcript summary {
   cursor: pointer; user-select: none;
-  list-style-position: outside;
+  list-style-position: inside;
+  padding-left: .25rem;
 }
 .item-transcript summary h2 {
   display: inline; margin: 0; font-size: 1.1rem;

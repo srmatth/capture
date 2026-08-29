@@ -156,6 +156,7 @@ _UPDATABLE = frozenset({
     "date_of_content", "confidence", "classifier_version",
     "transcript_path", "transcript_char_count", "transcript_source",
     "retry_count", "last_error_at",
+    "retranscribe_hint",
 })
 
 
