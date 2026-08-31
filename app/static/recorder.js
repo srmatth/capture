@@ -9,10 +9,21 @@
 // The recorder produces webm/opus on Chrome/Firefox and mp4/aac on
 // Safari. Both are audio containers the server accepts (audio/* prefix
 // matches on the mime check in routers/upload.py).
+//
+// Wrapped in an IIFE because upload.js already declares module-level
+// `const status = ...`. Two <script> tags on the same page share global
+// scope — a second `const status` throws SyntaxError: Identifier
+// 'status' has already been declared, which iOS Safari eats silently
+// (no visible console, click handler never attaches, button appears
+// dead). Isolating each script's names in its own function scope
+// prevents this class of collision permanently.
+
+(() => {
+"use strict";
 
 const recordBtn = document.getElementById("recordBtn");
 const recordBtnLabel = document.getElementById("recordBtnLabel");
-const status = document.getElementById("status");
+const statusEl = document.getElementById("status");
 const noteEl = document.getElementById("note");
 
 // Diagnostic: surface load state in the status area so silent failures
@@ -21,7 +32,7 @@ const noteEl = document.getElementById("note");
 // tap doesn't produce this message we know the click handler itself
 // never fires.
 function dbg(msg) {
-  if (status) status.textContent = msg;
+  if (statusEl) statusEl.textContent = msg;
   console.log("[recorder]", msg);
 }
 
@@ -63,13 +74,13 @@ if (recordBtn) {
 
 async function startRecording() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    status.textContent = "This browser doesn't support in-page audio recording.";
+    statusEl.textContent = "This browser doesn't support in-page audio recording.";
     return;
   }
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (e) {
-    status.textContent = `Mic permission denied: ${e.message}`;
+    statusEl.textContent = `Mic permission denied: ${e.message}`;
     return;
   }
 
@@ -79,7 +90,7 @@ async function startRecording() {
       ? new MediaRecorder(stream, { mimeType })
       : new MediaRecorder(stream);
   } catch (e) {
-    status.textContent = `Recorder init failed: ${e.message}`;
+    statusEl.textContent = `Recorder init failed: ${e.message}`;
     stopStream();
     return;
   }
@@ -97,7 +108,7 @@ async function startRecording() {
   recording = true;
   recordBtn.classList.add("recording");
   recordBtnLabel.textContent = "⏹ Stop and upload";
-  status.textContent = "Recording… tap the button again to stop.";
+  statusEl.textContent = "Recording… tap the button again to stop.";
 }
 
 function stopRecording() {
@@ -126,7 +137,7 @@ function pickMimeType() {
 }
 
 async function uploadRecording(blob) {
-  status.textContent = "Uploading recording…";
+  statusEl.textContent = "Uploading recording…";
   // Extension driven by mime type so the server-side kind sniff sees
   // the right hint. audio/webm -> .webm, audio/mp4 -> .m4a.
   const ext = blob.type.includes("mp4") ? "m4a"
@@ -139,14 +150,14 @@ async function uploadRecording(blob) {
     const r = await fetch("/upload", { method: "POST", body: fd });
     if (!r.ok) throw new Error(`upload failed: ${r.status}`);
     const { id, status_url } = await r.json();
-    status.textContent = "Uploaded. Processing…";
+    statusEl.textContent = "Uploaded. Processing…";
     if (noteEl) noteEl.value = "";
     // uploadSingle in upload.js has the poll loop; call the same
     // helper if it's on the page. The pattern is duplicated here to
     // keep the recorder self-contained.
     pollForCompletion(status_url);
   } catch (e) {
-    status.textContent = `Upload error: ${e.message}`;
+    statusEl.textContent = `Upload error: ${e.message}`;
   }
 }
 
@@ -160,20 +171,23 @@ async function pollForCompletion(url) {
       j = await r.json();
     } catch { continue; }
     if (j.status === "embedded") {
-      status.innerHTML = `Done: <strong>${escapeHtml(j.title || "(untitled)")}</strong>
+      statusEl.innerHTML = `Done: <strong>${escapeHtml(j.title || "(untitled)")}</strong>
         filed under <code>${escapeHtml(j.path)}</code>`;
       return;
     }
     if (j.status === "failed") {
-      status.textContent = `Failed: ${j.error_message}`;
+      statusEl.textContent = `Failed: ${j.error_message}`;
       return;
     }
-    status.textContent = `Status: ${j.status}…`;
+    statusEl.textContent = `Status: ${j.status}…`;
   }
-  status.textContent = "Still processing. Check the Inbox / Recent later.";
+  statusEl.textContent = "Still processing. Check the Inbox / Recent later.";
 }
 
 function escapeHtml(s) {
   return String(s || "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+
+})();
+

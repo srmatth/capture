@@ -1,8 +1,19 @@
 // Client-side capture flow. Every image gets a crop pass. Audio and
 // existing-file uploads bypass the cropper and post directly.
+//
+// Wrapped in an IIFE so top-level const names (status, noteEl, cropper
+// etc.) don't leak into the global scope where they'd collide with
+// other scripts on the same page. Two <script> tags share global
+// scope; a duplicate `const` throws SyntaxError immediately, which
+// iOS Safari eats silently — resulting in later scripts on the page
+// simply not running. Isolating each script's names in its own
+// function scope prevents this class of collision permanently.
+
+(() => {
+"use strict";
 
 const noteEl = document.getElementById("note");
-const status = document.getElementById("status");
+const statusEl = document.getElementById("status");
 const cropStage = document.getElementById("cropStage");
 const cropImage = document.getElementById("cropImage");
 const batchTray = document.getElementById("batchTray");
@@ -69,7 +80,7 @@ document.getElementById("cropReset").onclick = () => cropper && cropper.reset();
 document.getElementById("cropRotate").onclick = () => cropper && cropper.rotate(90);
 document.getElementById("cropAccept").onclick = async () => {
   if (!cropper) {
-    status.textContent = "Nothing to accept — no cropper active.";
+    statusEl.textContent = "Nothing to accept — no cropper active.";
     return;
   }
   try {
@@ -98,7 +109,7 @@ document.getElementById("cropAccept").onclick = async () => {
     // Surface it — silent failure here is what led us to think the
     // button did nothing. Log for devtools, show for the user.
     console.error("crop accept failed:", e);
-    status.textContent = `Crop failed: ${e.message}`;
+    statusEl.textContent = `Crop failed: ${e.message}`;
   }
 };
 
@@ -148,7 +159,7 @@ document.getElementById("batchCancel").onclick = () => {
 };
 document.getElementById("batchSubmit").onclick = async () => {
   if (!batchPages.length) return;
-  status.textContent = `Uploading ${batchPages.length} pages…`;
+  statusEl.textContent = `Uploading ${batchPages.length} pages…`;
   const fd = new FormData();
   batchPages.forEach((p, i) => fd.append("files", p.blob, `page-${i + 1}.jpg`));
   if (noteEl.value) fd.append("note", noteEl.value);
@@ -156,21 +167,21 @@ document.getElementById("batchSubmit").onclick = async () => {
     const r = await fetch("/upload_batch", { method: "POST", body: fd });
     if (!r.ok) throw new Error(`upload failed: ${r.status}`);
     const { id, status_url, pages } = await r.json();
-    status.textContent = `Uploaded ${pages} pages. Processing…`;
+    statusEl.textContent = `Uploaded ${pages} pages. Processing…`;
     batchPages.forEach(p => URL.revokeObjectURL(p.url));
     batchPages = [];
     renderBatchTray();
     noteEl.value = "";
     poll(id, status_url);
   } catch (e) {
-    status.textContent = `Error: ${e.message}`;
+    statusEl.textContent = `Error: ${e.message}`;
   }
 };
 
 // ---------- Single upload ----------
 
 async function uploadSingle(file) {
-  status.textContent = "Uploading…";
+  statusEl.textContent = "Uploading…";
   const fd = new FormData();
   fd.set("file", file);
   if (noteEl.value) fd.append("note", noteEl.value);
@@ -178,11 +189,11 @@ async function uploadSingle(file) {
     const r = await fetch("/upload", { method: "POST", body: fd });
     if (!r.ok) throw new Error(`upload failed: ${r.status}`);
     const { id, status_url } = await r.json();
-    status.textContent = "Uploaded. Processing…";
+    statusEl.textContent = "Uploaded. Processing…";
     noteEl.value = "";
     poll(id, status_url);
   } catch (e) {
-    status.textContent = `Error: ${e.message}`;
+    statusEl.textContent = `Error: ${e.message}`;
   }
 }
 
@@ -195,20 +206,23 @@ async function poll(id, url) {
     if (!r.ok) continue;
     const j = await r.json();
     if (j.status === "embedded") {
-      status.innerHTML = `Done: <strong>${escapeHtml(j.title || "(untitled)")}</strong>
+      statusEl.innerHTML = `Done: <strong>${escapeHtml(j.title || "(untitled)")}</strong>
         filed under <code>${escapeHtml(j.path)}</code>`;
       return;
     }
     if (j.status === "failed") {
-      status.textContent = `Failed: ${j.error_message}`;
+      statusEl.textContent = `Failed: ${j.error_message}`;
       return;
     }
-    status.textContent = `Status: ${j.status}…`;
+    statusEl.textContent = `Status: ${j.status}…`;
   }
-  status.textContent = "Still processing. Check the Inbox / Recent later.";
+  statusEl.textContent = "Still processing. Check the Inbox / Recent later.";
 }
 
 function escapeHtml(s) {
   return String(s || "").replace(/[&<>"']/g, c =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+
+})();
+
