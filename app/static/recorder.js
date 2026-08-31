@@ -15,6 +15,20 @@ const recordBtnLabel = document.getElementById("recordBtnLabel");
 const status = document.getElementById("status");
 const noteEl = document.getElementById("note");
 
+// Diagnostic: surface load state in the status area so silent failures
+// on iOS Safari (where the JS console isn't visible) become visible.
+// This runs before we get to the getUserMedia check, so if the button
+// tap doesn't produce this message we know the click handler itself
+// never fires.
+function dbg(msg) {
+  if (status) status.textContent = msg;
+  console.log("[recorder]", msg);
+}
+
+if (!recordBtn) {
+  dbg("recorder: #recordBtn element not found");
+}
+
 // Try mime types in preference order — Safari doesn't support webm/opus
 // so we fall through to mp4/aac. If the browser accepts NEITHER we let
 // MediaRecorder pick its default with an empty string (edge browsers).
@@ -31,13 +45,21 @@ let stream = null;
 let chunks = [];
 let recording = false;
 
-recordBtn?.addEventListener("click", async () => {
-  if (!recording) {
-    await startRecording();
-  } else {
-    stopRecording();
-  }
-});
+if (recordBtn) {
+  recordBtn.addEventListener("click", async () => {
+    dbg("recorder: button clicked");
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      dbg("recorder: navigator.mediaDevices unavailable "
+          + `(secureContext=${window.isSecureContext})`);
+      return;
+    }
+    if (!recording) {
+      await startRecording();
+    } else {
+      stopRecording();
+    }
+  });
+}
 
 async function startRecording() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
