@@ -336,3 +336,68 @@ a.tag:hover { color: var(--fg); border-color: var(--fg); }
   border: 1px solid var(--border); background: transparent; color: var(--fg);
   border-radius: var(--radius); cursor: pointer; justify-self: start;
 }
+
+/* ---------- Voice recorder modal ---------- */
+
+.recorder-modal {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+  z-index: 100;
+}
+.recorder-modal[hidden] { display: none; }
+.recorder-box {
+  background: var(--bg); color: var(--fg);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  width: 100%; max-width: 420px;
+  border: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 1rem;
+  align-items: center;
+}
+.recorder-title { font-size: 1.1rem; font-weight: 500; }
+.recorder-duration {
+  font-family: monospace; font-size: 2.5rem; font-weight: 300;
+  font-variant-numeric: tabular-nums;
+}
+.recorder-level {
+  width: 100%; height: 60px;
+  border-radius: var(--radius);
+  background: var(--border);
+}
+.recorder-state {
+  color: var(--muted); font-size: .9rem; text-align: center;
+  min-height: 1.2em;
+}
+.recorder-controls {
+  display: flex; flex-wrap: wrap; gap: .5rem;
+  justify-content: center; width: 100%;
+}
+.recorder-controls button {
+  flex: 1 1 auto; min-width: 6rem;
+  padding: .6rem 1rem;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: transparent; color: var(--fg); font: inherit; cursor: pointer;
+}
+.recorder-controls button.primary {
+  background: var(--accent); color: white; border-color: var(--accent);
+}
+.recorder-controls button.danger {
+  background: transparent; color: var(--danger); border-color: var(--danger);
+}
+.recorder-controls button:disabled {
+  opacity: .5; cursor: default;
+}
+.recorder-modal audio {
+  width: 100%; margin-top: .25rem;
+}
+/* Recording state: red pulse on the box border */
+.recorder-modal[data-state="recording"] .recorder-box {
+  border-color: var(--danger);
+  animation: recorder-pulse 1.2s ease-in-out infinite;
+}
+@keyframes recorder-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
+  50%      { box-shadow: 0 0 0 8px rgba(220, 38, 38, 0); }
+}
