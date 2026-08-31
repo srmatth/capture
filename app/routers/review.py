@@ -71,14 +71,14 @@ def _fetch_review_buckets() -> dict:
 @router.get("/inbox", response_class=HTMLResponse)
 async def inbox_page(request: Request):
     buckets = _fetch_review_buckets()
-    from ..taxonomy import TAXONOMY
+    from ..taxonomy import get_taxonomy
     return _templates().TemplateResponse(
         request,
         "inbox.html",
         {
             "buckets": buckets,
             "spot_check_threshold": SPOT_CHECK_THRESHOLD,
-            "taxonomy": sorted(TAXONOMY.keys()),
+            "taxonomy": sorted(get_taxonomy().keys()),
         },
     )
 

@@ -1,0 +1,76 @@
+{% extends "_base.html" %}
+{% set active_nav = 'taxonomy' %}
+{% block title %}Categories — Capture{% endblock %}
+{% block header %}Categories{% endblock %}
+{% block content %}
+
+{% if flash %}
+  <section class="flash flash-{{ flash.kind }}">{{ flash.msg }}</section>
+{% endif %}
+
+<p class="section-hint">
+  These are the paths the classifier files items into, and the only
+  destinations the "move" button offers. Built-in categories can be
+  edited but not deleted; user-added ones can be deleted when nothing's
+  filed under them.
+</p>
+
+<section class="taxonomy-add">
+  <h2>Add category</h2>
+  <form method="post" action="/taxonomy/add" class="taxonomy-form">
+    <label>
+      Path <small>(e.g. <code>reference/cooking</code> — lowercase, slash for nesting)</small>
+      <input type="text" name="path"
+             pattern="[a-z0-9][a-z0-9/_-]*"
+             placeholder="reference/cooking" required>
+    </label>
+    <label>
+      Description <small>(shown to the LLM — describe what belongs here)</small>
+      <textarea name="description" rows="2" required
+                placeholder="Recipes, cookbook excerpts, meal planning notes."></textarea>
+    </label>
+    <button type="submit">Add</button>
+  </form>
+</section>
+
+<section class="taxonomy-list">
+  <h2>Existing ({{ entries|length }})</h2>
+  {% for e in entries %}
+    <article class="taxonomy-entry">
+      <header>
+        <code class="taxonomy-path">{{ e.path }}</code>
+        {% if e.is_builtin %}
+          <span class="badge badge-builtin">built-in</span>
+        {% else %}
+          <span class="badge badge-user">user</span>
+        {% endif %}
+        <span class="taxonomy-count">
+          {{ e.item_count }} item{{ '' if e.item_count == 1 else 's' }}
+        </span>
+      </header>
+      <details>
+        <summary>Edit description</summary>
+        <form method="post" action="/taxonomy/{{ e.path }}/edit" class="taxonomy-form">
+          <textarea name="description" rows="3" required>{{ e.description }}</textarea>
+          <button type="submit">Save description</button>
+        </form>
+      </details>
+      {% if not e.is_builtin %}
+        <form method="post" action="/taxonomy/{{ e.path }}/delete" class="taxonomy-delete-form">
+          <button type="submit"
+                  {% if e.item_count > 0 %}disabled title="Move the {{ e.item_count }} filed item{{ '' if e.item_count == 1 else 's' }} elsewhere first"{% endif %}
+                  onclick="return confirm('Delete {{ e.path }}?')">
+            Delete
+          </button>
+        </form>
+      {% endif %}
+      {% if not e.is_builtin %}
+        <p class="taxonomy-desc">{{ e.description }}</p>
+      {% else %}
+        <p class="taxonomy-desc muted">{{ e.description }}</p>
+      {% endif %}
+    </article>
+  {% endfor %}
+</section>
+
+{% endblock %}

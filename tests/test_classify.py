@@ -16,6 +16,17 @@ import pytest
 # ---------- helpers ----------
 
 
+@pytest.fixture(autouse=True)
+def _seed_taxonomy(tmp_data_root):
+    """The classify worker reads the taxonomy from SQLite. Every test in
+    this module needs the DB initialised and the built-in taxonomy seeded
+    before it can call _resolve_path / process_one."""
+    from app.db import init_db
+    from app.taxonomy import seed_builtins
+    init_db()
+    seed_builtins()
+
+
 def _make_item_ready_for_classify(*, note: str = "", uploaded_at: str | None = None) -> str:
     """Insert a DB row, drop a raw file in inbox/image/, and write a
     transcript at processed/image/<id>.txt so classify can read it."""

@@ -17,7 +17,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .db import init_db
-from .routers import review, search, upload
+from .routers import review, search, taxonomy as taxonomy_router, upload
+from .taxonomy import seed_builtins
 
 BASE_DIR = Path(__file__).parent
 TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -27,10 +28,14 @@ app = FastAPI(title="matthewshome capture")
 # Initialize DB schema on import so the first request never sees a
 # missing table. Idempotent — no-op after the first run.
 init_db()
+# Seed the built-in taxonomy after migrations have run. INSERT OR IGNORE
+# means user edits to descriptions are preserved across restarts.
+seed_builtins()
 
 app.include_router(upload.router)
 app.include_router(search.router)
 app.include_router(review.router)
+app.include_router(taxonomy_router.router)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 

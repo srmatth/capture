@@ -136,14 +136,15 @@ def test_item_detail_404(tmp_data_root: Path) -> None:
     ("/search", "Search"),
     ("/browse", "Browse"),
     ("/inbox", "Inbox"),
+    ("/taxonomy", "Categories"),
 ])
 def test_nav_present_and_active_on_every_page(
     tmp_data_root: Path, url: str, expected_active: str
 ) -> None:
     r = _client().get(url)
     assert r.status_code == 200
-    # All four nav destinations appear on every page.
-    for link in ("/upload", "/search", "/browse", "/inbox"):
+    # All five nav destinations appear on every page.
+    for link in ("/upload", "/search", "/browse", "/inbox", "/taxonomy"):
         assert f'href="{link}"' in r.text, f"{link} missing from {url}"
     # The current page's nav link carries class="active".
     assert 'class="active"' in r.text, f"no active nav marker on {url}"

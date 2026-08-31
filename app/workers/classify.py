@@ -36,10 +36,10 @@ from ..db import (
 )
 from ..retry import is_ready_for_retry
 from ..taxonomy import (
-    CLASSIFIER_VERSION,
     CONFIDENCE_FLOOR,
-    TAXONOMY,
     build_classify_prompt,
+    classifier_version,
+    get_taxonomy,
 )
 
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
@@ -119,12 +119,17 @@ def _resolve_path(raw_path: str, confidence: float, item_id: str,
 
     # Match against the taxonomy keys. Exact match wins; otherwise treat
     # as unknown and inbox it.
-    if raw_path not in TAXONOMY:
+    taxonomy = get_taxonomy()
+    if raw_path not in taxonomy:
         # Special case: the LLM might return 'notes/project/foo' for the
         # <name> placeholder. Accept the shape but only if the parent
-        # notes/project/ is a real key (it is) — we adopt the leaf name
-        # verbatim.
-        if raw_path.startswith("notes/project/") and raw_path.count("/") == 2:
+        # notes/project/<name> template is present in the taxonomy — we
+        # adopt the leaf name verbatim.
+        if (
+            "notes/project/<name>" in taxonomy
+            and raw_path.startswith("notes/project/")
+            and raw_path.count("/") == 2
+        ):
             leaf = raw_path.split("/", 2)[2]
             if leaf and leaf.replace("-", "").replace("_", "").isalnum():
                 return raw_path
@@ -218,7 +223,7 @@ def process_one(item_id: str) -> None:
         "confidence": confidence,
         "tags": [str(t).strip().lower() for t in (llm.get("tags") or []) if str(t).strip()],
         "entities": llm.get("entities") or {},
-        "classifier_version": CLASSIFIER_VERSION,
+        "classifier_version": classifier_version(),
         "classified_at": datetime.now(timezone.utc).isoformat(),
     }
     (processed_dir / f"{item_id}.meta.json").write_text(json.dumps(meta, indent=2))
@@ -233,7 +238,7 @@ def process_one(item_id: str) -> None:
         one_line_summary=meta["one_line_summary"],
         date_of_content=meta["date_of_content"],
         confidence=confidence,
-        classifier_version=CLASSIFIER_VERSION,
+        classifier_version=classifier_version(),
         # transcript_path now points at the relocated file.
         transcript_path=str(processed_txt.relative_to(CONFIG.data_root)),
     )

@@ -36,7 +36,7 @@ from ..search import (
     browse as browse_items, list_by_tag, path_facets, related_items,
     search as run_search,
 )
-from ..taxonomy import TAXONOMY
+from ..taxonomy import get_taxonomy
 
 router = APIRouter()
 
@@ -109,7 +109,7 @@ async def browse_view(request: Request, path: str = ""):
         return _templates().TemplateResponse(
             request,
             "browse_root.html",
-            {"facets": path_facets(), "taxonomy": TAXONOMY},
+            {"facets": path_facets(), "taxonomy": get_taxonomy()},
         )
 
     items = browse_items(path, limit=100)
@@ -172,7 +172,7 @@ async def item_detail(request: Request, item_id: str):
             "tags": get_tags(item_id),
             "transcript": transcript,
             "related": related_items(item_id, limit=5),
-            "taxonomy": sorted(TAXONOMY.keys()),
+            "taxonomy": sorted(get_taxonomy().keys()),
             "comments": get_comments(item_id),
         },
     )
@@ -219,8 +219,12 @@ async def item_move(request: Request, item_id: str, path: Annotated[str, Form()]
             {"moved": False, "reason": "already there"},
         )
 
-    # Validate target: either a taxonomy key or a journal date subpath.
-    if path not in TAXONOMY and not path.startswith("journal/") \
+    # Validate target: either a taxonomy key or a journal date subpath,
+    # or a concrete notes/project/<leaf> — the template <name> only
+    # exists in the taxonomy as a placeholder, but its concrete children
+    # are legal move targets whether or not they're in the taxonomy yet.
+    taxonomy = get_taxonomy()
+    if path not in taxonomy and not path.startswith("journal/") \
             and not path.startswith("notes/project/"):
         raise HTTPException(400, f"unknown path {path!r}")
 
