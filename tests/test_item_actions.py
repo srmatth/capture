@@ -418,3 +418,176 @@ def test_retranscribe_pdf_without_batch_pages_rejects_vision(
     r = _client().post(f"/item/{item_id}/retranscribe?with=vision")
     assert r.status_code == 409
     assert "non-batch" in r.text.lower() or "vision" in r.text.lower()
+
+
+# ---------- edit metadata ----------
+
+
+def test_edit_metadata_updates_fields(tmp_data_root: Path) -> None:
+    """POST /item/<id>/edit updates title, summary, date, tags."""
+    from app.db import get_item, get_tags
+
+    item_id = "01EDT0000000000000000000A"
+    _seed_classified_item(item_id=item_id)
+
+    r = _client().post(
+        f"/item/{item_id}/edit",
+        data={
+            "title": "New title",
+            "one_line_summary": "New one-liner.",
+            "date_of_content": "2026-03-15",
+            "tags": "antitrust, legal, brief",
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["edited"] is True
+
+    row = get_item(item_id)
+    assert row["title"] == "New title"
+    assert row["one_line_summary"] == "New one-liner."
+    assert row["date_of_content"] == "2026-03-15"
+    assert set(get_tags(item_id)) == {"antitrust", "legal", "brief"}
+
+
+def test_edit_metadata_only_touches_submitted_fields(tmp_data_root: Path) -> None:
+    """A form that submits only title shouldn't nuke the summary."""
+    from app.db import get_item
+
+    item_id = "01EDT0000000000000000000B"
+    _seed_classified_item(item_id=item_id)
+
+    original = get_item(item_id)
+    _client().post(f"/item/{item_id}/edit", data={"title": "Changed only title"})
+
+    row = get_item(item_id)
+    assert row["title"] == "Changed only title"
+    assert row["one_line_summary"] == original["one_line_summary"]
+
+
+def test_edit_metadata_rejects_bad_date(tmp_data_root: Path) -> None:
+    item_id = "01EDT0000000000000000000C"
+    _seed_classified_item(item_id=item_id)
+
+    r = _client().post(
+        f"/item/{item_id}/edit",
+        data={"date_of_content": "not-a-date"},
+    )
+    assert r.status_code == 400
+
+
+def test_edit_metadata_can_clear_optional_fields(tmp_data_root: Path) -> None:
+    """Empty string on nullable fields clears them to NULL. Real HTML
+    forms always transmit the field with an empty value; this test
+    calls the endpoint directly at the Python level rather than going
+    through the httpx2 TestClient, which strips empty form values.
+    """
+    from app.db import get_item, update_item
+    from app.routers.search import item_edit
+
+    item_id = "01EDT0000000000000000000D"
+    _seed_classified_item(item_id=item_id)
+    update_item(item_id, date_of_content="2026-01-01")
+
+    # Fake Request with JSON accept so the response is plain dict.
+    from fastapi.testclient import TestClient
+    from app.main import app
+    with TestClient(app) as _:
+        pass  # ensure app is initialized
+    from starlette.requests import Request as StarletteRequest
+    req = StarletteRequest({
+        "type": "http", "method": "POST", "headers": [(b"accept", b"application/json")],
+    })
+
+    import asyncio
+    asyncio.run(item_edit(request=req, item_id=item_id, date_of_content=""))
+
+    assert get_item(item_id)["date_of_content"] is None
+
+
+def test_edit_metadata_refreshes_fts(tmp_data_root: Path) -> None:
+    """After editing title/summary, the FTS index should reflect the new
+    text so keyword search finds items by their edited fields."""
+    from app.search import fts_search
+
+    item_id = "01EDT0000000000000000000E"
+    _seed_classified_item(item_id=item_id)
+
+    _client().post(
+        f"/item/{item_id}/edit",
+        data={"title": "zumbleflorph antitrust"},
+    )
+    hits = fts_search("zumbleflorph")
+    ids = [h[0] for h in hits]
+    assert item_id in ids
+
+
+# ---------- comments ----------
+
+
+def test_add_comment_appears_in_get_comments(tmp_data_root: Path) -> None:
+    from app.db import get_comments
+
+    item_id = "01CMT0000000000000000000A"
+    _seed_classified_item(item_id=item_id)
+
+    r = _client().post(
+        f"/item/{item_id}/comments",
+        data={"body": "This is a note about the item."},
+    )
+    assert r.status_code == 200
+    assert r.json()["added_comment"] is True
+
+    comments = get_comments(item_id)
+    assert len(comments) == 1
+    assert comments[0]["body"] == "This is a note about the item."
+    assert comments[0]["created_at"]
+
+
+def test_comments_are_ordered(tmp_data_root: Path) -> None:
+    from app.db import get_comments
+
+    item_id = "01CMT0000000000000000000B"
+    _seed_classified_item(item_id=item_id)
+
+    for i in range(3):
+        _client().post(f"/item/{item_id}/comments", data={"body": f"comment #{i}"})
+
+    comments = get_comments(item_id)
+    assert [c["body"] for c in comments] == ["comment #0", "comment #1", "comment #2"]
+
+
+def test_delete_comment_removes_it(tmp_data_root: Path) -> None:
+    from app.db import get_comments
+
+    item_id = "01CMT0000000000000000000C"
+    _seed_classified_item(item_id=item_id)
+    _client().post(f"/item/{item_id}/comments", data={"body": "delete me"})
+
+    comment_id = get_comments(item_id)[0]["id"]
+    r = _client().post(f"/item/{item_id}/comments/{comment_id}/delete")
+    assert r.status_code == 200
+
+    assert get_comments(item_id) == []
+
+
+def test_empty_comment_rejected(tmp_data_root: Path) -> None:
+    item_id = "01CMT0000000000000000000D"
+    _seed_classified_item(item_id=item_id)
+
+    r = _client().post(f"/item/{item_id}/comments", data={"body": "   "})
+    assert r.status_code == 400
+
+
+def test_comments_cascade_on_hard_item_delete(tmp_data_root: Path) -> None:
+    """FK ON DELETE CASCADE test. Soft-delete via /delete doesn't remove
+    the DB row, but a direct DELETE cascades to item_comments."""
+    from app.db import _connect, add_comment, get_comments
+
+    item_id = "01CMT0000000000000000000E"
+    _seed_classified_item(item_id=item_id)
+    add_comment(item_id, "will be cascaded")
+    assert len(get_comments(item_id)) == 1
+
+    with _connect() as conn:
+        conn.execute("DELETE FROM items WHERE id = ?", (item_id,))
+    assert get_comments(item_id) == []

@@ -109,6 +109,60 @@
   </form>
 </section>
 
+<section class="item-edit">
+  <details>
+    <summary><h2>Edit metadata</h2></summary>
+    <form method="post" action="/item/{{ row.id }}/edit" class="edit-form">
+      <label>
+        Title
+        <input type="text" name="title" value="{{ row.title or '' }}" maxlength="200">
+      </label>
+      <label>
+        Summary
+        <textarea name="one_line_summary" maxlength="400" rows="2">{{ row.one_line_summary or '' }}</textarea>
+      </label>
+      <label>
+        Content date <small>(YYYY-MM-DD; blank to clear)</small>
+        <input type="text" name="date_of_content"
+               value="{{ row.date_of_content or '' }}"
+               placeholder="2026-08-31" pattern="\d{4}-\d{2}-\d{2}">
+      </label>
+      <label>
+        Tags <small>(comma-separated, lowercase)</small>
+        <input type="text" name="tags" value="{{ tags|join(', ') }}">
+      </label>
+      <button type="submit">Save metadata</button>
+    </form>
+  </details>
+</section>
+
+<section class="item-comments">
+  <h2>Comments</h2>
+  {% if comments %}
+    <ul class="comment-list">
+      {% for c in comments %}
+        <li>
+          <div class="comment-body">{{ c.body }}</div>
+          <div class="comment-meta">
+            <span>{{ c.created_at[:19] }}</span>
+            <form method="post"
+                  action="/item/{{ row.id }}/comments/{{ c.id }}/delete"
+                  class="inline-form">
+              <button type="submit"
+                      onclick="return confirm('Delete this comment?')">×</button>
+            </form>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  <form method="post" action="/item/{{ row.id }}/comments" class="comment-form">
+    <textarea name="body" placeholder="Add a comment or annotation…"
+              rows="2" required></textarea>
+    <button type="submit">Add comment</button>
+  </form>
+</section>
+
 {% if transcript %}
 <section class="item-transcript">
   <details>

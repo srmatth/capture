@@ -210,6 +210,38 @@ def get_tags(item_id: str) -> list[str]:
 # ---------- moves audit ----------
 
 
+# ---------- user-written comments ----------
+
+
+def add_comment(item_id: str, body: str) -> int:
+    """Append a comment. Returns the new comment's rowid."""
+    body = body.strip()
+    if not body:
+        raise ValueError("comment body must not be empty")
+    with _connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO item_comments(item_id, body, created_at) "
+            "VALUES (?, ?, ?)",
+            (item_id, body, _now()),
+        )
+        return cur.lastrowid or 0
+
+
+def get_comments(item_id: str) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, body, created_at FROM item_comments "
+            "WHERE item_id = ? ORDER BY created_at",
+            (item_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def delete_comment(comment_id: int) -> None:
+    with _connect() as conn:
+        conn.execute("DELETE FROM item_comments WHERE id = ?", (comment_id,))
+
+
 def record_move(item_id: str, from_path: str | None, to_path: str, reason: str = "") -> None:
     with _connect() as conn:
         conn.execute(

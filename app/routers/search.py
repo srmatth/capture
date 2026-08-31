@@ -9,9 +9,10 @@ actions) work on both hosts since middleware doesn't need to gate them.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -162,6 +163,7 @@ async def item_detail(request: Request, item_id: str):
         if t_path.exists():
             transcript = t_path.read_text()
 
+    from ..db import get_comments
     return _templates().TemplateResponse(
         request,
         "item.html",
@@ -171,6 +173,7 @@ async def item_detail(request: Request, item_id: str):
             "transcript": transcript,
             "related": related_items(item_id, limit=5),
             "taxonomy": sorted(TAXONOMY.keys()),
+            "comments": get_comments(item_id),
         },
     )
 
@@ -428,4 +431,113 @@ async def item_undelete(request: Request, item_id: str):
         conn.execute("UPDATE items SET deleted_at = NULL WHERE id = ?", (item_id,))
     return _redirect_or_json(
         request, f"/item/{item_id}", {"undeleted": True},
+    )
+
+
+# ---------- editable metadata ----------
+
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+@router.post("/item/{item_id}/edit")
+async def item_edit(
+    request: Request,
+    item_id: str,
+    title: Annotated[str | None, Form()] = None,
+    one_line_summary: Annotated[str | None, Form()] = None,
+    date_of_content: Annotated[str | None, Form()] = None,
+    tags: Annotated[str | None, Form()] = None,
+):
+    """Edit user-editable metadata. The LLM's original classification
+    stays in the DB, but these fields can be overridden by the user —
+    e.g., adding a publish date to a newspaper photo scan that doesn't
+    carry one in the OCR text.
+
+    All fields are optional; only submitted fields are updated. Passing
+    an empty string clears the field (nullable columns become NULL).
+
+    `tags` is comma-separated. Replaces the full tag set for the item.
+    """
+    row = get_item(item_id)
+    if row is None or row["deleted_at"]:
+        raise HTTPException(404)
+
+    updates: dict[str, Any] = {}
+    if title is not None:
+        title = title.strip()
+        if not title:
+            raise HTTPException(400, "title must not be empty when provided")
+        updates["title"] = title[:200]
+    if one_line_summary is not None:
+        updates["one_line_summary"] = one_line_summary.strip()[:400] or None
+    if date_of_content is not None:
+        v = date_of_content.strip()
+        if v and not _DATE_RE.match(v):
+            raise HTTPException(400, "date_of_content must be YYYY-MM-DD or empty")
+        updates["date_of_content"] = v or None
+    if updates:
+        update_item(item_id, **updates)
+
+    if tags is not None:
+        from ..db import set_tags
+        parts = [t.strip().lower() for t in tags.split(",")]
+        set_tags(item_id, [t for t in parts if t])
+
+    # Refresh FTS so title/summary/tag edits show up in keyword search
+    # on the next hit. Uses the current transcript on disk.
+    from ..db import upsert_fts
+    updated = get_item(item_id)
+    transcript_text = ""
+    if updated["transcript_path"]:
+        t_path = CONFIG.data_root / updated["transcript_path"]
+        if t_path.exists():
+            transcript_text = t_path.read_text()
+    upsert_fts(
+        item_id,
+        title=updated["title"] or "",
+        summary=updated["one_line_summary"] or "",
+        transcript=transcript_text,
+    )
+
+    return _redirect_or_json(
+        request, f"/item/{item_id}",
+        {"edited": True, "fields": list(updates.keys()) + (["tags"] if tags is not None else [])},
+    )
+
+
+# ---------- comments ----------
+
+
+@router.post("/item/{item_id}/comments")
+async def item_add_comment(
+    request: Request,
+    item_id: str,
+    body: Annotated[str, Form()],
+):
+    """Append a user comment to the item."""
+    row = get_item(item_id)
+    if row is None or row["deleted_at"]:
+        raise HTTPException(404)
+    body = body.strip()
+    if not body:
+        raise HTTPException(400, "comment must not be empty")
+
+    from ..db import add_comment
+    comment_id = add_comment(item_id, body)
+    return _redirect_or_json(
+        request, f"/item/{item_id}",
+        {"added_comment": True, "id": comment_id},
+    )
+
+
+@router.post("/item/{item_id}/comments/{comment_id}/delete")
+async def item_delete_comment(
+    request: Request, item_id: str, comment_id: int,
+):
+    from ..db import delete_comment
+    delete_comment(comment_id)
+    return _redirect_or_json(
+        request, f"/item/{item_id}",
+        {"deleted_comment": True, "id": comment_id},
     )
