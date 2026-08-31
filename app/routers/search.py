@@ -14,7 +14,17 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+
+
+def _redirect_or_json(request: Request, url: str, payload: dict):
+    """Browser form posts get a 303 redirect so the user lands on a
+    usable page instead of a raw JSON blob. Programmatic callers that
+    set Accept: application/json get the JSON body they expect."""
+    accept = request.headers.get("accept", "").lower()
+    if "application/json" in accept and "text/html" not in accept:
+        return payload
+    return RedirectResponse(url, status_code=303)
 
 from ..config import CONFIG
 from ..db import (
@@ -189,7 +199,7 @@ async def item_raw(item_id: str):
 
 
 @router.post("/item/{item_id}/move")
-async def item_move(item_id: str, path: Annotated[str, Form()]):
+async def item_move(request: Request, item_id: str, path: Annotated[str, Form()]):
     """Move an item's raw + transcript + meta.json to a new path.
     Updates DB and records the move in the audit table so retraining
     the classifier later can learn from real corrections."""
@@ -201,7 +211,10 @@ async def item_move(item_id: str, path: Annotated[str, Form()]):
 
     old_path = row["path"]
     if path == old_path:
-        return {"moved": False, "reason": "already there"}
+        return _redirect_or_json(
+            request, f"/item/{item_id}",
+            {"moved": False, "reason": "already there"},
+        )
 
     # Validate target: either a taxonomy key or a journal date subpath.
     if path not in TAXONOMY and not path.startswith("journal/") \
@@ -260,7 +273,10 @@ async def item_move(item_id: str, path: Annotated[str, Form()]):
     except Exception:
         pass
 
-    return {"moved": True, "from": old_path, "to": path}
+    return _redirect_or_json(
+        request, f"/item/{item_id}",
+        {"moved": True, "from": old_path, "to": path},
+    )
 
 
 _VALID_RETRANSCRIBE_HINTS = ("vision", "tesseract", "force-ocr")
@@ -342,7 +358,7 @@ async def item_retranscribe(
 
 
 @router.post("/item/{item_id}/reclassify")
-async def item_reclassify(item_id: str):
+async def item_reclassify(request: Request, item_id: str):
     """Re-run the classify worker on this specific item. Uses the
     current prompt / model version — useful after taxonomy tweaks."""
     row = get_item(item_id)
@@ -360,19 +376,28 @@ async def item_reclassify(item_id: str):
         raise HTTPException(500, f"reclassify failed: {e!r}") from e
 
     updated = get_item(item_id)
-    return {"reclassified": True, "path": updated["path"],
-            "confidence": updated["confidence"]}
+    return _redirect_or_json(
+        request, f"/item/{item_id}",
+        {"reclassified": True, "path": updated["path"],
+         "confidence": updated["confidence"]},
+    )
 
 
 @router.post("/item/{item_id}/delete")
-async def item_delete(item_id: str):
+async def item_delete(request: Request, item_id: str):
     """Soft delete. Sets deleted_at, hides from search/browse. Raw
-    files stay on disk; a future Trash view can recover them."""
+    files stay on disk; a future Trash view can recover them.
+    Browser form posts redirect back to the path the item was in
+    (so the user sees the browse listing without the deleted row)
+    or / if that's not known."""
     row = get_item(item_id)
     if row is None:
         raise HTTPException(404)
     if row["deleted_at"]:
-        return {"deleted": False, "reason": "already deleted"}
+        return _redirect_or_json(
+            request, "/",
+            {"deleted": False, "reason": "already deleted"},
+        )
     from datetime import datetime, timezone
     with _connect() as conn:
         conn.execute(
@@ -380,16 +405,27 @@ async def item_delete(item_id: str):
             (datetime.now(timezone.utc).isoformat(),
              datetime.now(timezone.utc).isoformat(), item_id),
         )
-    return {"deleted": True}
+    # Delete redirects to browse of the parent path — the item was
+    # just removed from there, so it makes sense to see the updated
+    # listing. Fall back to / for items that were never classified.
+    redirect_to = f"/browse?path={row['path']}" if row["path"] else "/"
+    return _redirect_or_json(
+        request, redirect_to, {"deleted": True},
+    )
 
 
 @router.post("/item/{item_id}/undelete")
-async def item_undelete(item_id: str):
+async def item_undelete(request: Request, item_id: str):
     row = get_item(item_id)
     if row is None:
         raise HTTPException(404)
     if not row["deleted_at"]:
-        return {"undeleted": False, "reason": "not deleted"}
+        return _redirect_or_json(
+            request, f"/item/{item_id}",
+            {"undeleted": False, "reason": "not deleted"},
+        )
     with _connect() as conn:
         conn.execute("UPDATE items SET deleted_at = NULL WHERE id = ?", (item_id,))
-    return {"undeleted": True}
+    return _redirect_or_json(
+        request, f"/item/{item_id}", {"undeleted": True},
+    )

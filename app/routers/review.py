@@ -113,12 +113,20 @@ async def inbox_move(
     path: Annotated[str, Form()],
 ):
     """Delegate to the shared move endpoint's logic, then return the
-    HTMX-shaped fragment for the card."""
+    HTMX-shaped fragment for the card. Force the JSON-response path
+    in item_move by asserting Accept: application/json on the way in."""
     from ..routers.search import item_move
+    # A shallow scope clone with json-accepting headers so item_move
+    # doesn't 303-redirect us back to the item detail page.
+    fake_scope = dict(request.scope)
+    headers = [(k, v) for k, v in request.headers.raw
+                if k.lower() != b"accept"]
+    headers.append((b"accept", b"application/json"))
+    fake_scope["headers"] = headers
+    fake_request = Request(fake_scope, request.receive)
     try:
-        await item_move(item_id, path)  # raises HTTPException on invalid
+        await item_move(fake_request, item_id, path)
     except HTTPException as e:
-        # Bubble up as-is for the client to render.
         raise e
     return _card_html(request, item_id, resolved=f"moved to {path}")
 
@@ -126,7 +134,13 @@ async def inbox_move(
 @router.post("/inbox/{item_id}/delete", response_class=HTMLResponse)
 async def inbox_delete(request: Request, item_id: str):
     from ..routers.search import item_delete
-    await item_delete(item_id)
+    fake_scope = dict(request.scope)
+    headers = [(k, v) for k, v in request.headers.raw
+                if k.lower() != b"accept"]
+    headers.append((b"accept", b"application/json"))
+    fake_scope["headers"] = headers
+    fake_request = Request(fake_scope, request.receive)
+    await item_delete(fake_request, item_id)
     return _card_html(request, item_id, resolved="deleted")
 
 

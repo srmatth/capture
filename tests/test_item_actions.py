@@ -10,8 +10,12 @@ from fastapi.testclient import TestClient
 
 
 def _client():
+    """TestClient with a JSON accept header by default. The action
+    endpoints (delete, move, reclassify) 303-redirect browser POSTs
+    but return JSON when the caller specifies Accept: application/json.
+    Tests are programmatic callers, so we want the JSON path."""
     from app.main import app
-    return TestClient(app)
+    return TestClient(app, headers={"accept": "application/json"})
 
 
 def _seed_classified_item(*, item_id: str, path: str = "notes/personal") -> None:
@@ -196,6 +200,80 @@ def test_item_reclassify_calls_worker(tmp_data_root: Path,
 def test_item_reclassify_404(tmp_data_root: Path) -> None:
     r = _client().post("/item/does-not-exist/reclassify")
     assert r.status_code == 404
+
+
+# ---------- redirect behavior for browser POSTs ----------
+#
+# Browser form submissions (Accept: text/html) that hit the item-action
+# endpoints must land somewhere useful, not on a raw JSON blob. Previously
+# clicking Delete on a phone dumped you on {"deleted": true} and required
+# a force-quit to recover.
+
+
+def _browser_client():
+    """TestClient with a browser-like Accept header (no application/json)."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    return TestClient(app, headers={"accept": "text/html,*/*"})
+
+
+def test_delete_redirects_browser_to_browse_path(tmp_data_root: Path) -> None:
+    item_id = "01RED0000000000000000000A"
+    _seed_classified_item(item_id=item_id, path="notes/personal")
+
+    r = _browser_client().post(f"/item/{item_id}/delete", follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/browse?path=notes/personal"
+
+
+def test_move_redirects_browser_to_item_detail(tmp_data_root: Path) -> None:
+    item_id = "01RED0000000000000000000B"
+    _seed_classified_item(item_id=item_id, path="notes/personal")
+
+    r = _browser_client().post(
+        f"/item/{item_id}/move", data={"path": "notes/professional"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/item/{item_id}"
+
+
+def test_reclassify_redirects_browser(tmp_data_root: Path,
+                                        monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.workers import classify
+    monkeypatch.setattr(classify, "process_one", lambda _i: None)
+
+    item_id = "01RED0000000000000000000C"
+    _seed_classified_item(item_id=item_id)
+
+    r = _browser_client().post(
+        f"/item/{item_id}/reclassify", follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/item/{item_id}"
+
+
+def test_undelete_redirects_browser(tmp_data_root: Path) -> None:
+    item_id = "01RED0000000000000000000D"
+    _seed_classified_item(item_id=item_id)
+    _client().post(f"/item/{item_id}/delete")   # soft-delete via JSON client
+
+    r = _browser_client().post(
+        f"/item/{item_id}/undelete", follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/item/{item_id}"
+
+
+def test_json_client_still_gets_json(tmp_data_root: Path) -> None:
+    """Programmatic callers (like the inbox HTMX endpoints and tests)
+    that set Accept: application/json still get the JSON payload back."""
+    item_id = "01RED0000000000000000000E"
+    _seed_classified_item(item_id=item_id)
+
+    r = _client().post(f"/item/{item_id}/delete")
+    assert r.status_code == 200
+    assert r.json() == {"deleted": True}
 
 
 # ---------- retranscribe ----------
