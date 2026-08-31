@@ -172,6 +172,8 @@ def test_upload_route_serves_pwa(tmp_data_root: Path) -> None:
     "/static/cropper.min.js",
     "/static/cropper.min.css",
     "/static/upload.js",
+    "/static/recorder.js",
+    "/static/retranscribe.js",
     "/static/style.css",
     "/static/manifest.webmanifest",
 ])

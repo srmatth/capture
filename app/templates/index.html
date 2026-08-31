@@ -23,10 +23,15 @@
     <input type="file" data-flow="batch-add" accept="image/*" capture="environment" hidden>
   </label>
 
-  <label class="capture-btn audio">
-    <span>🎤 Record voice memo</span>
-    <input type="file" data-flow="direct" accept="audio/*" capture hidden>
-  </label>
+  {# Voice memo uses MediaRecorder rather than a file input. The old
+     <input type=file accept=audio/* capture> was iOS-quirky: bare
+     `capture` defaulted to camera-with-video, and even after picking
+     an audio file the mp4 container from iOS's voice recorder failed
+     the accept mime check on the server. In-browser recording is
+     both nicer UX and dodges those iOS-file-picker issues. #}
+  <button type="button" id="recordBtn" class="capture-btn audio">
+    <span id="recordBtnLabel">🎤 Record voice memo</span>
+  </button>
 
   <label class="capture-btn upload">
     <span>📎 Upload existing file</span>
@@ -61,5 +66,6 @@
 
 <script src="/static/cropper.min.js"></script>
 <script src="/static/upload.js"></script>
+<script src="/static/recorder.js"></script>
 
 {% endblock %}
