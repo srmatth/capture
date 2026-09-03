@@ -72,11 +72,15 @@ def _stub_haiku(monkeypatch: pytest.MonkeyPatch, response: dict) -> list:
     from app.workers import classify
     calls: list = []
 
-    def fake(transcript: str) -> dict:
+    def fake(transcript: str, reading_context: str = "") -> dict:
         calls.append(transcript)
         return response
 
     monkeypatch.setattr(classify, "_call_haiku", fake)
+    monkeypatch.setattr(classify, "_get_reading_context", lambda: ("", {}))
+    # Stub task extraction so classify tests don't call the Anthropic API
+    from app import tasks_extract
+    monkeypatch.setattr(tasks_extract, "extract_tasks", lambda *a, **kw: [])
     return calls
 
 
@@ -246,10 +250,11 @@ def test_classify_invalid_json_marks_failed(tmp_data_root: Path,
 
     # Stub _call_haiku to raise directly, simulating a bad LLM response
     # that _parse_llm_json rejected.
-    def broken(_transcript: str) -> dict:
+    def broken(_transcript: str, reading_context: str = "") -> dict:
         raise ValueError("LLM did not return valid JSON")
 
     monkeypatch.setattr(classify, "_call_haiku", broken)
+    monkeypatch.setattr(classify, "_get_reading_context", lambda: ("", {}))
 
     with pytest.raises(ValueError):
         classify.main()
