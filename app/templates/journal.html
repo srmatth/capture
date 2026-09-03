@@ -1,0 +1,24 @@
+{% extends "_base.html" %}
+{% block title %}New Journal Entry — Capture{% endblock %}
+{% block header %}New Journal Entry{% endblock %}
+{% set active_nav = 'journal' %}
+{% block content %}
+
+<form method="post" action="/journal/create" enctype="multipart/form-data" class="journal-form">
+  <textarea name="body" rows="12" placeholder="Write your journal entry..."
+            required autofocus
+            style="width: 100%; font-size: 1rem; padding: 12px; border: 1px solid var(--border, #ccc); border-radius: 6px; resize: vertical; font-family: inherit;"></textarea>
+
+  <div style="margin-top: 12px;">
+    <label style="display: block; font-size: 0.9rem; color: var(--muted, #666); margin-bottom: 4px;">
+      Attach photos (optional)
+    </label>
+    <input type="file" name="photos" accept="image/*" multiple>
+  </div>
+
+  <button type="submit" style="margin-top: 16px; padding: 10px 24px; font-size: 1rem; cursor: pointer;">
+    Save Entry
+  </button>
+</form>
+
+{% endblock %}

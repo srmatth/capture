@@ -419,6 +419,45 @@ def save_book_link(
 # ---------- FTS ----------
 
 
+# ---------- attachments ----------
+
+
+def insert_attachment(
+    *,
+    attachment_id: str,
+    item_id: str,
+    filename: str,
+    mime_type: str | None = None,
+    size_bytes: int = 0,
+) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO item_attachments "
+            "(id, item_id, filename, mime_type, size_bytes, uploaded_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (attachment_id, item_id, filename, mime_type, size_bytes, _now()),
+        )
+
+
+def get_attachments(item_id: str) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM item_attachments WHERE item_id = ? ORDER BY uploaded_at",
+            (item_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def delete_attachment(attachment_id: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "DELETE FROM item_attachments WHERE id = ?", (attachment_id,)
+        )
+
+
+# ---------- FTS ----------
+
+
 def upsert_fts(item_id: str, *, title: str, summary: str, transcript: str) -> None:
     with _connect() as conn:
         conn.execute("DELETE FROM items_fts WHERE id = ?", (item_id,))

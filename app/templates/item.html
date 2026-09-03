@@ -168,6 +168,30 @@
   </form>
 </section>
 
+{# Attachments #}
+<section class="item-attachments">
+  <h2>Attachments</h2>
+  {% if attachments %}
+    <div class="attachment-grid">
+      {% for att in attachments %}
+        <div class="attachment-item">
+          {% if att.mime_type and att.mime_type.startswith('image/') %}
+            <a href="/item/{{ row.id }}/attachments/{{ att.id }}/raw">
+              <img src="/item/{{ row.id }}/attachments/{{ att.id }}/raw" alt="{{ att.filename }}" class="attachment-thumb">
+            </a>
+          {% else %}
+            <a href="/item/{{ row.id }}/attachments/{{ att.id }}/raw">{{ att.filename }}</a>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+  <form method="post" action="/item/{{ row.id }}/attachments" enctype="multipart/form-data" class="inline-form" style="margin-top: 8px;">
+    <input type="file" name="file" accept="image/*">
+    <button type="submit">Attach photo</button>
+  </form>
+</section>
+
 {% if transcript %}
 <section class="item-transcript">
   <details>

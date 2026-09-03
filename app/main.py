@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .db import init_db
-from .routers import review, search, tasks, taxonomy as taxonomy_router, upload
+from .routers import journal, review, search, tasks, taxonomy as taxonomy_router, upload
 from .taxonomy import seed_builtins
 
 BASE_DIR = Path(__file__).parent
@@ -36,6 +36,7 @@ app.include_router(upload.router)
 app.include_router(search.router)
 app.include_router(review.router)
 app.include_router(tasks.router)
+app.include_router(journal.router)
 app.include_router(taxonomy_router.router)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 

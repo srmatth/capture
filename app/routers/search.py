@@ -14,7 +14,7 @@ import shutil
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Form, HTTPException, Query, Request
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 
@@ -163,7 +163,7 @@ async def item_detail(request: Request, item_id: str):
         if t_path.exists():
             transcript = t_path.read_text()
 
-    from ..db import get_comments
+    from ..db import get_attachments, get_comments
     return _templates().TemplateResponse(
         request,
         "item.html",
@@ -174,6 +174,7 @@ async def item_detail(request: Request, item_id: str):
             "related": related_items(item_id, limit=5),
             "taxonomy": sorted(get_taxonomy().keys()),
             "comments": get_comments(item_id),
+            "attachments": get_attachments(item_id),
         },
     )
 
@@ -545,3 +546,59 @@ async def item_delete_comment(
         request, f"/item/{item_id}",
         {"deleted_comment": True, "id": comment_id},
     )
+
+
+# ---------- attachments ----------
+
+
+@router.post("/item/{item_id}/attachments")
+async def item_upload_attachment(
+    request: Request,
+    item_id: str,
+    file: UploadFile = File(...),
+):
+    row = get_item(item_id)
+    if row is None:
+        raise HTTPException(404)
+
+    from ulid import ULID
+    from ..db import insert_attachment
+
+    att_id = str(ULID())
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower() if file.filename and "." in file.filename else "bin"
+    filename = f"{att_id}.{ext}"
+
+    att_dir = CONFIG.data_root / (row["path"] or "inbox") / f"{item_id}.attachments"
+    att_dir.mkdir(parents=True, exist_ok=True)
+    target = att_dir / filename
+
+    with target.open("wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    insert_attachment(
+        attachment_id=att_id,
+        item_id=item_id,
+        filename=filename,
+        mime_type=file.content_type,
+        size_bytes=target.stat().st_size,
+    )
+    return _redirect_or_json(
+        request, f"/item/{item_id}",
+        {"attached": True, "attachment_id": att_id},
+    )
+
+
+@router.get("/item/{item_id}/attachments/{att_id}/raw")
+async def item_attachment_raw(item_id: str, att_id: str):
+    row = get_item(item_id)
+    if row is None:
+        raise HTTPException(404)
+    from ..db import get_attachments
+    atts = get_attachments(item_id)
+    att = next((a for a in atts if a["id"] == att_id), None)
+    if att is None:
+        raise HTTPException(404)
+    path = CONFIG.data_root / (row["path"] or "inbox") / f"{item_id}.attachments" / att["filename"]
+    if not path.exists():
+        raise HTTPException(404)
+    return FileResponse(path, media_type=att.get("mime_type") or "application/octet-stream")
