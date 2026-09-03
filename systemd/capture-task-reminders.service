@@ -1,0 +1,13 @@
+[Unit]
+Description=Check task reminders and send ntfy alerts
+OnFailure=notify-fail@%n.service
+
+[Service]
+Type=oneshot
+Environment=DATA_ROOT=/srv/data/capture
+Environment=LIBRARY_DB=/srv/data/capture/library.db
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=%h/.config/systemd/user/ntfy.env
+EnvironmentFile=%h/.config/matthewshome/capture.env
+WorkingDirectory=/srv/capture
+ExecStart=%h/.local/bin/uv run --project /srv/capture --no-dev python -m app.workers.task_reminders
