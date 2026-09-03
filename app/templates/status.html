@@ -1,0 +1,80 @@
+{% extends "_base.html" %}
+{% set active_nav = 'status' %}
+{% block title %}Pipeline Status — Capture{% endblock %}
+{% block header %}Pipeline Status{% endblock %}
+{% block content %}
+
+<section>
+  <h2>In Progress ({{ in_progress|length }})</h2>
+  {% if in_progress %}
+    <table class="status-table">
+      <thead>
+        <tr><th>Title / File</th><th>Kind</th><th>Status</th><th>Uploaded</th></tr>
+      </thead>
+      <tbody>
+        {% for item in in_progress %}
+          <tr>
+            <td>
+              {% if item.title %}
+                <a href="/item/{{ item.id }}">{{ item.title }}</a>
+              {% else %}
+                {{ item.original_filename or item.id[:12] }}
+              {% endif %}
+            </td>
+            <td>{{ item.source_kind }}</td>
+            <td><span class="status-badge status-{{ item.status }}">{{ item.status }}</span></td>
+            <td class="muted">{{ item.uploaded_at[:16] if item.uploaded_at else '' }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="empty-state">All items have finished processing.</p>
+  {% endif %}
+</section>
+
+{% if failed %}
+<section>
+  <h2>Failed ({{ failed|length }})</h2>
+  <table class="status-table">
+    <thead>
+      <tr><th>Title / File</th><th>Kind</th><th>Status</th><th>Error</th><th>Retries</th></tr>
+    </thead>
+    <tbody>
+      {% for item in failed %}
+        <tr>
+          <td>
+            {% if item.title %}
+              <a href="/item/{{ item.id }}">{{ item.title }}</a>
+            {% else %}
+              {{ item.original_filename or item.id[:12] }}
+            {% endif %}
+          </td>
+          <td>{{ item.source_kind }}</td>
+          <td><span class="status-badge status-{{ item.status }}">{{ item.status }}</span></td>
+          <td class="muted" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">{{ item.error_message or '' }}</td>
+          <td>{{ item.retry_count or 0 }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<style>
+.status-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.status-table th, .status-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.status-badge {
+  display: inline-block; font-size: 0.75rem; padding: 2px 8px;
+  border-radius: 12px; font-weight: 500;
+}
+.status-queued { background: #e0e7ff; color: #3730a3; }
+.status-transcribing, .status-classifying, .status-embedding { background: #fef3c7; color: #92400e; }
+.status-transcribed, .status-classified { background: #d1fae5; color: #065f46; }
+.status-failed { background: #fee2e2; color: #991b1b; }
+.status-dead_letter { background: #fecaca; color: #7f1d1d; }
+.muted { color: var(--muted, #666); }
+.empty-state { color: var(--muted, #666); padding: 16px 0; }
+</style>
+
+{% endblock %}

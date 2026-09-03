@@ -168,17 +168,16 @@
   </form>
 </section>
 
-{# Attachments #}
+{# Attachments with lightbox gallery #}
 <section class="item-attachments">
-  <h2>Attachments</h2>
+  <h2>Attachments ({{ attachments|length }})</h2>
   {% if attachments %}
     <div class="attachment-grid">
       {% for att in attachments %}
         <div class="attachment-item">
           {% if att.mime_type and att.mime_type.startswith('image/') %}
-            <a href="/item/{{ row.id }}/attachments/{{ att.id }}/raw">
-              <img src="/item/{{ row.id }}/attachments/{{ att.id }}/raw" alt="{{ att.filename }}" class="attachment-thumb">
-            </a>
+            <img src="/item/{{ row.id }}/attachments/{{ att.id }}/raw" alt="{{ att.filename }}"
+                 class="attachment-thumb" onclick="openLightbox({{ loop.index0 }})" loading="lazy">
           {% else %}
             <a href="/item/{{ row.id }}/attachments/{{ att.id }}/raw">{{ att.filename }}</a>
           {% endif %}
@@ -186,11 +185,60 @@
       {% endfor %}
     </div>
   {% endif %}
-  <form method="post" action="/item/{{ row.id }}/attachments" enctype="multipart/form-data" class="inline-form" style="margin-top: 8px;">
-    <input type="file" name="file" accept="image/*">
-    <button type="submit">Attach photo</button>
-  </form>
+  <label class="btn" style="margin-top: 8px; cursor: pointer;">
+    + Add photos
+    <input type="file" name="files" accept="image/*" multiple hidden
+           onchange="uploadAttachments(this, '{{ row.id }}')">
+  </label>
+  <div id="attachUploadStatus" class="muted" style="margin-top: 4px;"></div>
 </section>
+
+{# Lightbox overlay #}
+{% if attachments %}
+<div id="lightbox" class="lightbox" hidden onclick="if(event.target===this)closeLightbox()">
+  <button class="lightbox-close" onclick="closeLightbox()">×</button>
+  <button class="lightbox-prev" onclick="lightboxNav(-1)">‹</button>
+  <img id="lightboxImg" class="lightbox-img" alt="">
+  <button class="lightbox-next" onclick="lightboxNav(1)">›</button>
+  <div id="lightboxCounter" class="lightbox-counter"></div>
+</div>
+<script>
+(function() {
+  var urls = [{% for att in attachments %}{% if att.mime_type and att.mime_type.startswith('image/') %}"/item/{{ row.id }}/attachments/{{ att.id }}/raw",{% endif %}{% endfor %}];
+  var idx = 0;
+  window.openLightbox = function(i) {
+    idx = i;
+    document.getElementById('lightboxImg').src = urls[idx];
+    document.getElementById('lightboxCounter').textContent = (idx+1) + ' / ' + urls.length;
+    document.getElementById('lightbox').hidden = false;
+  };
+  window.closeLightbox = function() { document.getElementById('lightbox').hidden = true; };
+  window.lightboxNav = function(d) {
+    idx = (idx + d + urls.length) % urls.length;
+    document.getElementById('lightboxImg').src = urls[idx];
+    document.getElementById('lightboxCounter').textContent = (idx+1) + ' / ' + urls.length;
+  };
+})();
+
+async function uploadAttachments(input, itemId) {
+  if (!input.files.length) return;
+  var el = document.getElementById('attachUploadStatus');
+  el.textContent = 'Uploading ' + input.files.length + ' file(s)…';
+  var ok = 0, fail = 0;
+  for (var i = 0; i < input.files.length; i++) {
+    var fd = new FormData();
+    fd.set('file', input.files[i]);
+    try {
+      var r = await fetch('/item/' + itemId + '/attachments', {method: 'POST', body: fd});
+      if (r.ok) ok++; else fail++;
+    } catch(e) { fail++; }
+  }
+  input.value = '';
+  el.textContent = ok + ' uploaded' + (fail ? ', ' + fail + ' failed' : '') + '. Refreshing…';
+  setTimeout(function() { location.reload(); }, 500);
+}
+</script>
+{% endif %}
 
 {% if transcript %}
 <section class="item-transcript">

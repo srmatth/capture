@@ -354,6 +354,31 @@ a.tag:hover { color: var(--fg); border-color: var(--fg); }
 }
 .attachment-item a { text-decoration: none; color: var(--accent); font-size: .85rem; }
 
+/* ---------- Lightbox ---------- */
+
+.lightbox {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.9);
+  display: flex; align-items: center; justify-content: center;
+}
+.lightbox-img { max-width: 90vw; max-height: 85vh; object-fit: contain; border-radius: 4px; }
+.lightbox-close {
+  position: absolute; top: 12px; right: 16px;
+  font-size: 2rem; color: #fff; background: none; border: none; cursor: pointer;
+  min-width: 44px; min-height: 44px;
+}
+.lightbox-prev, .lightbox-next {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  font-size: 2.5rem; color: #fff; background: none; border: none; cursor: pointer;
+  min-width: 44px; min-height: 44px; padding: 8px;
+}
+.lightbox-prev { left: 8px; }
+.lightbox-next { right: 8px; }
+.lightbox-counter {
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  color: #ccc; font-size: 0.9rem;
+}
+
 /* ---------- Voice recorder modal ---------- */
 
 .recorder-modal {

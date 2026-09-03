@@ -47,6 +47,27 @@ def _templates():
     return TEMPLATES
 
 
+# ---------- pipeline status ----------
+
+
+@router.get("/status", response_class=HTMLResponse)
+async def pipeline_status(request: Request):
+    """Show items currently in the pipeline (not yet embedded)."""
+    in_progress = list_items_by_statuses([
+        "queued", "transcribing", "transcribed",
+        "classifying", "classified", "embedding",
+    ])
+    failed = list_items_by_statuses(["failed", "dead_letter"])
+    return _templates().TemplateResponse(
+        request,
+        "status.html",
+        {
+            "in_progress": in_progress,
+            "failed": failed,
+        },
+    )
+
+
 # ---------- landing ----------
 
 
