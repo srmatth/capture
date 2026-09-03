@@ -15,6 +15,7 @@ later prompt improvements can retrain against real human corrections.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shutil
 import sys
@@ -23,13 +24,18 @@ from pathlib import Path
 from typing import Any
 
 import anthropic
+import httpx
 
 from ..config import CONFIG
 from ..db import (
+    generate_reminder_token,
     get_item,
     get_tags,  # noqa: F401 -- referenced elsewhere; import proves module wiring
+    insert_task,
+    is_duplicate_task,
     record_move,
     record_worker_failure,
+    save_book_link,
     set_entities,
     set_tags,
     update_item,
@@ -41,6 +47,8 @@ from ..taxonomy import (
     classifier_version,
     get_taxonomy,
 )
+
+_log = logging.getLogger(__name__)
 
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
@@ -77,10 +85,72 @@ def _parse_llm_json(text: str) -> dict[str, Any]:
     return obj
 
 
-def _call_haiku(transcript: str) -> dict[str, Any]:
+def _get_reading_context() -> tuple[str, dict[int, dict]]:
+    """Fetch currently-reading books from the reading service.
+    Returns (prompt_fragment, books_by_id). Empty on any failure."""
+    try:
+        resp = httpx.get(
+            f"{CONFIG.reading_api_url}/currently-reading",
+            timeout=5.0,
+        )
+        resp.raise_for_status()
+        books = resp.json()
+    except Exception:
+        return ("", {})
+
+    if not books:
+        return ("", {})
+
+    books_by_id = {b["book_id"]: b for b in books}
+    current = [b for b in books if not b.get("recently_finished")]
+    recent = [b for b in books if b.get("recently_finished")]
+
+    lines: list[str] = []
+    if current:
+        lines.append("The user is currently reading these books (book_id in parentheses):")
+        for b in current:
+            line = f'- "{b["title"]}" by {b["author"]} (book_id={b["book_id"]})'
+            if b.get("reading_number", 1) > 1:
+                line += f" [re-read #{b['reading_number']}]"
+            lines.append(line)
+    if recent:
+        lines.append("\nThe user recently finished these books (still match excerpts):")
+        for b in recent:
+            lines.append(f'- "{b["title"]}" by {b["author"]} (book_id={b["book_id"]})')
+    lines.append(
+        "\nIf the item is an excerpt, passage, highlight, or quote from one "
+        "of these books:\n"
+        "- Set path to media/books\n"
+        "- Include the book title and author in the title\n"
+        "- Set book_id to the matching book's book_id from the list above\n"
+        "- If it does not match any listed book, set book_id to null"
+    )
+    return ("\n".join(lines), books_by_id)
+
+
+def _link_to_reading(
+    item_id: str, book_id: int, reading_id: int, title: str
+) -> None:
+    """Fire-and-forget POST to the reading service."""
+    try:
+        httpx.post(
+            f"{CONFIG.reading_api_url}/link-capture",
+            json={
+                "book_id": book_id,
+                "reading_id": reading_id,
+                "capture_item_id": item_id,
+                "capture_title": title,
+            },
+            timeout=5.0,
+        )
+    except Exception:
+        pass
+
+
+def _call_haiku(transcript: str, reading_context: str = "") -> dict[str, Any]:
     """Call Claude Haiku for classification. Returns the parsed JSON."""
     client = anthropic.Anthropic(api_key=CONFIG.anthropic_api_key)
-    prompt = build_classify_prompt(transcript)
+    prompt = build_classify_prompt(transcript, extra_context=reading_context)
     resp = client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=1000,
@@ -176,7 +246,15 @@ def process_one(item_id: str) -> None:
 
     update_item(item_id, status="classifying")
 
-    llm = _call_haiku(transcript_full)
+    # Fetch reading context for book excerpt matching (skip if already
+    # set at upload time via the "capture excerpt" shortcut)
+    has_book_shortcut = bool(row.get("reading_book_id"))
+    reading_context = ""
+    books_by_id: dict[int, dict] = {}
+    if not has_book_shortcut:
+        reading_context, books_by_id = _get_reading_context()
+
+    llm = _call_haiku(transcript_full, reading_context=reading_context)
 
     confidence = float(llm.get("confidence") or 0.0)
     final_path = _resolve_path(
@@ -251,6 +329,49 @@ def process_one(item_id: str) -> None:
         if isinstance(v, list):
             normalized_entities[str(k)] = [str(x) for x in v]
     set_entities(item_id, normalized_entities)
+
+    # --- Task extraction (3A) ---
+    # Only for notes/*. Wrapped in try/except so a task-extraction
+    # failure never blocks the classify pipeline.
+    if final_path.startswith("notes/"):
+        try:
+            from ..tasks_extract import extract_tasks
+            from ulid import ULID
+
+            tasks = extract_tasks(transcript_full, item_id)
+            for t in tasks:
+                if not is_duplicate_task(t["title"], t.get("due_at")):
+                    insert_task(
+                        task_id=str(ULID()),
+                        title=t["title"],
+                        due_at=t.get("due_at"),
+                        project=t.get("project"),
+                        priority=t.get("priority", "normal"),
+                        source_item_id=item_id,
+                        reminder_token=generate_reminder_token(),
+                    )
+        except Exception:
+            _log.exception("task extraction failed for %s", item_id)
+
+    # --- Book linking (3E reading integration) ---
+    if final_path == "media/books":
+        book_id_from_llm = llm.get("book_id")
+        item_title = meta["title"]
+        if has_book_shortcut:
+            _link_to_reading(
+                item_id, row["reading_book_id"],
+                row["reading_reading_id"], item_title,
+            )
+        elif book_id_from_llm and int(book_id_from_llm) in books_by_id:
+            matched = books_by_id[int(book_id_from_llm)]
+            save_book_link(
+                item_id, matched["book_id"],
+                matched["reading_id"], matched["title"],
+            )
+            _link_to_reading(
+                item_id, matched["book_id"],
+                matched["reading_id"], item_title,
+            )
 
     # Record the placement in the moves audit so later prompt
     # improvements can measure "how often did the LLM's choice stick?"

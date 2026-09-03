@@ -19,11 +19,11 @@ from pathlib import Path
 from typing import Annotated
 
 import img2pdf
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from ulid import ULID
 
 from ..config import CONFIG
-from ..db import get_item, insert_item, reset_retry_state
+from ..db import get_item, insert_item, reset_retry_state, save_book_link
 
 router = APIRouter()
 
@@ -57,6 +57,9 @@ def _ext_for(file: UploadFile, kind: str) -> str:
 async def upload(
     file: UploadFile = File(...),
     note: Annotated[str | None, Form()] = None,
+    book_id: Annotated[int | None, Query()] = None,
+    reading_id: Annotated[int | None, Query()] = None,
+    book_title: Annotated[str | None, Query()] = None,
 ) -> dict:
     kind = _classify_mime(file.content_type or "")
     if kind is None:
@@ -79,6 +82,10 @@ async def upload(
         size_bytes=target.stat().st_size,
         upload_note=note,
     )
+
+    if book_id is not None and reading_id is not None and book_title:
+        save_book_link(item_id, book_id, reading_id, book_title)
+
     return {"id": item_id, "status_url": f"/jobs/{item_id}"}
 
 

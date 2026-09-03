@@ -68,6 +68,10 @@ _BUILTINS: dict[str, str] = {
     "media/podcasts": (
         "Podcast transcripts."
     ),
+    "media/books": (
+        "Book excerpts, passages, highlights, quotes from books the user "
+        "is reading."
+    ),
     "inbox": (
         "Fallback when the item does not clearly fit any category. "
         "Return this with confidence <= 0.5 when uncertain."
@@ -263,6 +267,7 @@ Schema:
   "tags": ["string", ...],
   "date_of_content": "YYYY-MM-DD or null",
   "confidence": 0.0-1.0,
+  "book_id": "integer or null (only when path is media/books)",
   "entities": {{
     "person": ["string", ...],
     "org": ["string", ...],
@@ -275,8 +280,11 @@ Item text (may be a transcript, OCR output, or plain text):
 """
 
 
-def build_classify_prompt(item_text: str) -> str:
-    return CLASSIFY_PROMPT_TEMPLATE.format(
+def build_classify_prompt(item_text: str, extra_context: str = "") -> str:
+    prompt = CLASSIFY_PROMPT_TEMPLATE.format(
         taxonomy_lines=_taxonomy_lines(get_taxonomy()),
-        item_text=item_text[:8000],  # bound the prompt regardless of transcript length
+        item_text=item_text[:8000],
     )
+    if extra_context:
+        prompt += f"\n\n{extra_context}\n"
+    return prompt
