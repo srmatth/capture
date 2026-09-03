@@ -16,6 +16,8 @@ dependencies = [
     "ocrmypdf>=16.0",
     "pillow>=10.4",
     "img2pdf>=0.5",
+    "readability-lxml>=0.8",
+    "lxml[html_clean]>=5.0",
 ]
 
 [dependency-groups]

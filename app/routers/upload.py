@@ -89,6 +89,86 @@ async def upload(
     return {"id": item_id, "status_url": f"/jobs/{item_id}"}
 
 
+@router.post("/upload_text")
+async def upload_text(
+    body: Annotated[str, Form()],
+    note: Annotated[str | None, Form()] = None,
+) -> dict:
+    """Free-text capture. Text is both the raw content and the transcript.
+    Skips the transcribe stage, goes straight to classify → embed."""
+    if not body.strip():
+        raise HTTPException(400, "text body is empty")
+
+    item_id = str(ULID())
+    inbox_dir = CONFIG.data_root / "inbox" / "plain"
+    inbox_dir.mkdir(parents=True, exist_ok=True)
+    target = inbox_dir / f"{item_id}.txt"
+    target.write_text(body)
+
+    insert_item(
+        item_id=item_id,
+        source_kind="plain",
+        original_filename="text-entry.txt",
+        mime_type="text/plain",
+        size_bytes=target.stat().st_size,
+        upload_note=note,
+    )
+    return {"id": item_id, "status_url": f"/jobs/{item_id}"}
+
+
+@router.post("/upload_url")
+async def upload_url(
+    url: Annotated[str, Form()],
+    note: Annotated[str | None, Form()] = None,
+) -> dict:
+    """URL capture. Fetches the page, extracts readable text via
+    readability-lxml, stores as a plain text item. The URL is saved
+    in the upload_note for reference."""
+    import ssl
+
+    import httpx as _httpx
+    from readability import Document
+
+    ctx = ssl.create_default_context()
+    ctx.load_default_certs()
+
+    async with _httpx.AsyncClient(timeout=30, follow_redirects=True, verify=ctx) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+
+    doc = Document(resp.text)
+    title = doc.title() or ""
+    content = doc.summary()
+
+    # Strip HTML tags for a plain-text version
+    from lxml import etree
+    tree = etree.fromstring(content, parser=etree.HTMLParser())
+    text = etree.tostring(tree, method="text", encoding="unicode").strip()
+
+    if not text:
+        raise HTTPException(400, "could not extract readable text from URL")
+
+    item_id = str(ULID())
+    inbox_dir = CONFIG.data_root / "inbox" / "plain"
+    inbox_dir.mkdir(parents=True, exist_ok=True)
+    target = inbox_dir / f"{item_id}.txt"
+    target.write_text(text)
+
+    combined_note = f"url: {url}"
+    if note:
+        combined_note = f"{note}\nurl: {url}"
+
+    insert_item(
+        item_id=item_id,
+        source_kind="plain",
+        original_filename=title[:100] or "web-page.txt",
+        mime_type="text/plain",
+        size_bytes=target.stat().st_size,
+        upload_note=combined_note,
+    )
+    return {"id": item_id, "status_url": f"/jobs/{item_id}"}
+
+
 @router.post("/upload_batch")
 async def upload_batch(
     files: list[UploadFile] = File(...),

@@ -224,5 +224,62 @@ function escapeHtml(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// ---------- Free text entry ----------
+
+const textForm = document.getElementById("textForm");
+if (textForm) {
+  textForm.addEventListener("submit", async function(e) {
+    e.preventDefault();
+    const body = document.getElementById("textBody").value.trim();
+    if (!body) return;
+    document.getElementById("textModal").hidden = true;
+    statusEl.textContent = "Saving text…";
+    try {
+      const fd = new FormData();
+      fd.set("body", body);
+      if (noteEl.value) fd.set("note", noteEl.value);
+      const r = await fetch("/upload_text", { method: "POST", body: fd });
+      if (!r.ok) throw new Error("upload failed: " + r.status);
+      const { id, status_url } = await r.json();
+      statusEl.textContent = "Saved. Processing…";
+      document.getElementById("textBody").value = "";
+      noteEl.value = "";
+      poll(id, status_url);
+    } catch (e) {
+      statusEl.textContent = "Error: " + e.message;
+    }
+  });
+}
+
+// ---------- URL entry ----------
+
+const urlForm = document.getElementById("urlForm");
+if (urlForm) {
+  urlForm.addEventListener("submit", async function(e) {
+    e.preventDefault();
+    const url = document.getElementById("urlInput").value.trim();
+    if (!url) return;
+    document.getElementById("urlModal").hidden = true;
+    statusEl.textContent = "Fetching page…";
+    try {
+      const fd = new FormData();
+      fd.set("url", url);
+      if (noteEl.value) fd.set("note", noteEl.value);
+      const r = await fetch("/upload_url", { method: "POST", body: fd });
+      if (!r.ok) {
+        const text = await r.text();
+        throw new Error("fetch failed: " + text.substring(0, 200));
+      }
+      const { id, status_url } = await r.json();
+      statusEl.textContent = "Page captured. Processing…";
+      document.getElementById("urlInput").value = "";
+      noteEl.value = "";
+      poll(id, status_url);
+    } catch (e) {
+      statusEl.textContent = "Error: " + e.message;
+    }
+  });
+}
+
 })();
 

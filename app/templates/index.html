@@ -10,28 +10,9 @@
 <div class="capture-buttons">
   <label class="capture-btn scan">
     <span>📷 Scan document</span>
-    <input type="file" data-flow="single" accept="image/*" capture="environment" hidden>
-  </label>
-
-  <label class="capture-btn photo">
-    <span>🖼️ Upload photo</span>
-    <input type="file" data-flow="single" accept="image/*" hidden>
-  </label>
-
-  <label class="capture-btn scan-batch">
-    <span>📚 Multi-page scan</span>
     <input type="file" data-flow="batch-add" accept="image/*" capture="environment" hidden>
   </label>
 
-  {# Voice memo uses MediaRecorder rather than a file input. The old
-     <input type=file accept=audio/* capture> was iOS-quirky: bare
-     `capture` defaulted to camera-with-video, and even after picking
-     an audio file the mp4 container from iOS's voice recorder failed
-     the accept mime check on the server. In-browser recording is
-     both nicer UX and dodges those iOS-file-picker issues.
-
-     Requires HTTPS on iOS (getUserMedia needs a secure context); the
-     matthewshome.<tailnet>.ts.net cert Caddy serves handles that. #}
   <button type="button" id="recordBtn" class="capture-btn audio">
     <span id="recordBtnLabel">🎤 Record voice memo</span>
   </button>
@@ -41,7 +22,45 @@
     <input type="file" data-flow="direct"
            accept="audio/*,image/*,application/pdf,text/plain" hidden>
   </label>
+
+  <button type="button" class="capture-btn text" onclick="document.getElementById('textModal').hidden = false;">
+    <span>📝 Free text</span>
+  </button>
+
+  <button type="button" class="capture-btn url" onclick="document.getElementById('urlModal').hidden = false;">
+    <span>🔗 Web page</span>
+  </button>
 </div>
+
+{# Free text entry modal #}
+<section id="textModal" class="recorder-modal" hidden>
+  <div class="recorder-box">
+    <div class="recorder-title">📝 Free text</div>
+    <form id="textForm" style="display: grid; gap: 12px;">
+      <textarea id="textBody" rows="8" placeholder="Paste or type text..."
+                required style="width: 100%; font-size: 1rem; padding: 12px; border: 1px solid var(--border, #ccc); border-radius: 6px; resize: vertical; font-family: inherit;"></textarea>
+      <div class="recorder-controls">
+        <button type="submit" class="primary">Capture</button>
+        <button type="button" onclick="document.getElementById('textModal').hidden = true;">Cancel</button>
+      </div>
+    </form>
+  </div>
+</section>
+
+{# URL entry modal #}
+<section id="urlModal" class="recorder-modal" hidden>
+  <div class="recorder-box">
+    <div class="recorder-title">🔗 Web page</div>
+    <form id="urlForm" style="display: grid; gap: 12px;">
+      <input type="url" id="urlInput" placeholder="https://..." required
+             style="width: 100%; font-size: 1rem; padding: 12px; border: 1px solid var(--border, #ccc); border-radius: 6px;">
+      <div class="recorder-controls">
+        <button type="submit" class="primary">Capture</button>
+        <button type="button" onclick="document.getElementById('urlModal').hidden = true;">Cancel</button>
+      </div>
+    </form>
+  </div>
+</section>
 
 <textarea id="note" placeholder="Optional context (e.g., 'journal page from today')"></textarea>
 
