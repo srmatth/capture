@@ -52,11 +52,13 @@ def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, **kwargs)
 
 VISION_PROMPT = (
-    "Transcribe the text in the image(s) verbatim. If there are multiple "
-    "pages, transcribe in order, separated by '---page break---'. Preserve "
-    "the author's line breaks and paragraph structure. If handwritten, "
-    "transcribe as accurately as possible. Return only the transcription, "
-    "no commentary."
+    "Transcribe the text in the image(s) verbatim. Copy the text exactly "
+    "as written, character by character. Do NOT paraphrase, summarize, "
+    "interpret, or reorganize. If there are multiple pages, transcribe in "
+    "order, separated by '---page break---'. Preserve the author's line "
+    "breaks and paragraph structure. Include line breaks as they appear. "
+    "If handwritten, transcribe as accurately as possible. Return only "
+    "the transcription, no commentary."
 )
 
 # Keywords in the upload `note` field that force the Claude vision path.
@@ -387,12 +389,19 @@ def process_one(item_id: str) -> None:
     processed_dir.mkdir(parents=True, exist_ok=True)
     out_txt = processed_dir / f"{item_id}.txt"
 
+    # Book-linked captures (from the reading app "capture excerpt" shortcut)
+    # are always typed text — force Tesseract, skip the handwriting heuristic.
+    is_book_excerpt = bool(row.get("reading_book_id"))
+
     if hint:
         text, source_tag = _dispatch_hinted(hint, src, item_id, kind)
     elif kind == "audio":
         text, source_tag = transcribe_audio(src), "whisper.cpp"
     elif kind == "image":
-        text, source_tag = transcribe_image(src, note)
+        if is_book_excerpt:
+            text, source_tag = _tesseract_image(src), "tesseract"
+        else:
+            text, source_tag = transcribe_image(src, note)
     elif kind == "pdf":
         text, source_tag = transcribe_pdf(src, item_id, note)
     elif kind == "plain":
@@ -437,9 +446,9 @@ def _dispatch_hinted(hint: str, src: Path, item_id: str,
         )
     if hint == "tesseract":
         if kind == "image":
-            return transcribe_image(src, note="")
+            return _tesseract_image(src), "tesseract"
         if kind == "pdf":
-            return transcribe_pdf(src, item_id, note="")
+            return _ocr_pdf_then_extract(src, force_ocr=True), "tesseract-pdf"
         raise RuntimeError(f"cannot tesseract-retranscribe kind={kind!r}")
     if hint == "force-ocr":
         if kind != "pdf":

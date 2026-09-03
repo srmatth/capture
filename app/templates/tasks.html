@@ -220,7 +220,7 @@
 {# -- Kanban columns -- #}
 <div class="task-columns">
   <section class="task-column">
-    <h2 class="overdue">Overdue ({{ overdue|length }})</h2>
+    <h2 class="{% if overdue %}overdue{% endif %}">Overdue ({{ overdue|length }})</h2>
     {% for task in overdue %}
       {{ task_card(task) }}
     {% else %}

@@ -8,6 +8,8 @@ them without opening the browser.
 
 from __future__ import annotations
 
+import os
+import zoneinfo
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
@@ -28,6 +30,8 @@ from ..db import (
 
 router = APIRouter()
 
+LOCAL_TZ = zoneinfo.ZoneInfo(os.environ.get("TZ", "America/Los_Angeles"))
+
 
 def _templates():
     """Late-import to avoid a circular via main.py."""
@@ -36,12 +40,12 @@ def _templates():
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(LOCAL_TZ).isoformat()
 
 
 def _bucket_tasks(tasks: list[dict]) -> dict:
     """Split a flat task list into Kanban buckets."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(LOCAL_TZ)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     overdue: list[dict] = []
