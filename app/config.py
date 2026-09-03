@@ -21,6 +21,7 @@ class Config:
     whisper_model: Path | None
     hf_home: Path | None
     anthropic_api_key: str | None
+    reading_api_url: str
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -33,6 +34,7 @@ class Config:
             whisper_model=_opt_path("WHISPER_MODEL"),
             hf_home=_opt_path("HF_HOME"),
             anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY"),
+            reading_api_url=os.environ.get("READING_API_URL", "http://localhost:8094/api"),
         )
 
 

@@ -251,6 +251,171 @@ def record_move(item_id: str, from_path: str | None, to_path: str, reason: str =
         )
 
 
+# ---------- tasks ----------
+
+import secrets
+
+
+_TASK_UPDATABLE = frozenset({
+    "title", "due_at", "project", "priority", "status",
+    "completed_at", "snoozed_until", "reminder_token",
+})
+
+_PRIORITY_RANK = {"high": 0, "normal": 1, "low": 2}
+
+
+def _levenshtein(a: str, b: str) -> int:
+    if len(a) < len(b):
+        return _levenshtein(b, a)
+    if len(b) == 0:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a):
+        curr = [i + 1]
+        for j, cb in enumerate(b):
+            cost = 0 if ca == cb else 1
+            curr.append(min(curr[j] + 1, prev[j + 1] + 1, prev[j] + cost))
+        prev = curr
+    return prev[-1]
+
+
+def generate_reminder_token() -> str:
+    return secrets.token_urlsafe(16)
+
+
+def insert_task(
+    *,
+    task_id: str,
+    title: str,
+    due_at: str | None = None,
+    project: str | None = None,
+    priority: str = "normal",
+    source_item_id: str | None = None,
+    reminder_token: str | None = None,
+) -> None:
+    now = _now()
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO tasks "
+            "(id, title, due_at, project, priority, status, source_item_id, "
+            "reminder_token, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)",
+            (task_id, title, due_at, project, priority,
+             source_item_id, reminder_token, now, now),
+        )
+
+
+def get_task(task_id: str) -> dict[str, Any] | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def list_open_tasks() -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM tasks WHERE status IN ('open', 'snoozed') "
+            "ORDER BY "
+            "CASE priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END, "
+            "CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, "
+            "due_at ASC, created_at ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_tasks_for_project(project: str) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM tasks WHERE project = ? AND status IN ('open', 'snoozed') "
+            "ORDER BY "
+            "CASE priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END, "
+            "CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, "
+            "due_at ASC, created_at ASC",
+            (project,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def update_task(task_id: str, **fields: Any) -> None:
+    bad = set(fields) - _TASK_UPDATABLE
+    if bad:
+        raise ValueError(f"cannot update task fields {bad}")
+    if not fields:
+        return
+    fields["updated_at"] = _now()
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    values = list(fields.values()) + [task_id]
+    with _connect() as conn:
+        conn.execute(f"UPDATE tasks SET {sets} WHERE id = ?", values)
+
+
+def delete_task(task_id: str) -> None:
+    with _connect() as conn:
+        conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+
+
+def is_duplicate_task(title: str, due_at: str | None) -> bool:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT title, due_at FROM tasks WHERE status = 'open'"
+        ).fetchall()
+    title_lower = title.lower().strip()
+    for row in rows:
+        existing_title = (row["title"] or "").lower().strip()
+        dates_match = (due_at or "") == (row["due_at"] or "")
+        if not dates_match:
+            continue
+        if title_lower == existing_title:
+            return True
+        if title_lower.startswith(existing_title) or existing_title.startswith(title_lower):
+            return True
+        if _levenshtein(title_lower, existing_title) <= 3:
+            return True
+    return False
+
+
+def insert_task_alert(task_id: str, kind: str) -> bool:
+    with _connect() as conn:
+        try:
+            conn.execute(
+                "INSERT INTO task_alerts (task_id, kind, sent_at) VALUES (?, ?, ?)",
+                (task_id, kind, _now()),
+            )
+            return True
+        except Exception:
+            return False
+
+
+def get_task_alerts(task_id: str) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM task_alerts WHERE task_id = ?", (task_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_task_by_reminder_token(token: str) -> dict[str, Any] | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM tasks WHERE reminder_token = ?", (token,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+# ---------- book links ----------
+
+
+def save_book_link(
+    item_id: str, book_id: int, reading_id: int, book_title: str
+) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE items SET reading_book_id = ?, reading_reading_id = ?, "
+            "reading_book_title = ?, updated_at = ? WHERE id = ?",
+            (book_id, reading_id, book_title, _now(), item_id),
+        )
+
+
 # ---------- FTS ----------
 
 
