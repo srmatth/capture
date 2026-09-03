@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -24,6 +25,12 @@ BASE_DIR = Path(__file__).parent
 TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 app = FastAPI(title="matthewshome capture")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"https?://.*\.matthewshome.*",
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
 # Initialize DB schema on import so the first request never sees a
 # missing table. Idempotent — no-op after the first run.
