@@ -1,0 +1,265 @@
+{% extends "_base.html" %}
+{% set active_nav = 'tasks' %}
+{% block title %}Tasks — Capture{% endblock %}
+{% block header %}Tasks{% endblock %}
+{% block content %}
+
+<style>
+  .task-add { margin-bottom: 1.5rem; }
+  .task-add form {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: .5rem;
+  }
+  .task-add input[type=text],
+  .task-add input[type=datetime-local],
+  .task-add select {
+    padding: .5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+  }
+  .task-add input[type=text] { grid-column: 1 / -1; }
+  .task-add .add-fields {
+    display: flex; gap: .5rem; flex-wrap: wrap;
+    grid-column: 1 / -1;
+  }
+  .task-add .add-fields > * { flex: 1; min-width: 0; }
+  .task-add button[type=submit] {
+    grid-column: 1 / -1;
+    padding: .5rem 1rem;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: white;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font: inherit;
+  }
+
+  .task-columns {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+  @media (min-width: 800px) {
+    main { max-width: 960px; }
+    .task-columns {
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+  }
+
+  .task-column h2 {
+    font-size: 1rem;
+    margin: 0 0 .75rem;
+    padding-bottom: .35rem;
+    border-bottom: 2px solid var(--border);
+  }
+  .task-column h2.overdue { color: var(--danger); border-bottom-color: var(--danger); }
+  .task-column.snoozed-section { opacity: .6; }
+  .task-column.snoozed-section:hover { opacity: 1; }
+
+  .task-card {
+    padding: .6rem .75rem;
+    margin-bottom: .5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .task-title {
+    display: block;
+    font-weight: 500;
+    margin-bottom: .25rem;
+  }
+  .task-title a { color: var(--fg); text-decoration: none; }
+  .task-title a:hover { color: var(--accent); }
+  .task-meta {
+    display: flex;
+    gap: .5rem;
+    align-items: center;
+    flex-wrap: wrap;
+    font-size: .8rem;
+    color: var(--muted);
+    margin-bottom: .35rem;
+  }
+  .task-due { font-size: .8rem; }
+  .task-due.overdue { color: var(--danger); font-weight: 500; }
+  .task-project {
+    font-size: .75rem;
+    padding: .1rem .45rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .task-project:hover { color: var(--fg); border-color: var(--fg); }
+  .priority-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+  .priority-dot.high { background: var(--danger); }
+  .priority-dot.normal { background: var(--muted); }
+  .priority-dot.low { background: var(--accent); }
+
+  .task-actions {
+    display: flex;
+    gap: .35rem;
+    flex-wrap: wrap;
+  }
+  .task-actions form { display: inline; }
+  .task-actions button {
+    padding: .25rem .5rem;
+    font-size: .8rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--fg);
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .task-actions button:hover { border-color: var(--fg); }
+  .task-actions .btn-done { color: #22c55e; border-color: #22c55e; }
+  .task-actions .btn-done:hover { background: rgba(34,197,94,.1); }
+  .task-actions .btn-snooze { color: #eab308; border-color: #eab308; }
+  .task-actions .btn-snooze:hover { background: rgba(234,179,8,.1); }
+  .task-actions .btn-delete { color: var(--danger); border-color: var(--danger); }
+  .task-actions .btn-delete:hover { background: rgba(220,38,38,.1); }
+
+  .project-filter-header {
+    margin-bottom: 1rem;
+    font-size: .9rem;
+    color: var(--muted);
+  }
+  .project-filter-header strong { color: var(--fg); }
+  .project-filter-header a { color: var(--accent); text-decoration: none; }
+
+  .project-list {
+    display: flex; gap: .35rem; flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+  }
+</style>
+
+{% if project_filter %}
+  <p class="project-filter-header">
+    Filtered to project: <strong>{{ project_filter }}</strong>
+    &mdash; <a href="/tasks">show all</a>
+  </p>
+{% endif %}
+
+{# -- Quick-add form -- #}
+<section class="task-add">
+  <form method="post" action="/tasks/new">
+    <input type="text" name="title" placeholder="New task..." required>
+    <div class="add-fields">
+      <input type="datetime-local" name="due_at">
+      <input type="text" name="project" placeholder="Project"
+             {% if project_filter %}value="{{ project_filter }}"{% endif %}>
+      <select name="priority">
+        <option value="normal" selected>Normal</option>
+        <option value="high">High</option>
+        <option value="low">Low</option>
+      </select>
+    </div>
+    <button type="submit">Add task</button>
+  </form>
+</section>
+
+{# -- Project quick-filter chips -- #}
+{% if projects %}
+  <nav class="project-list">
+    {% for p in projects %}
+      <a class="task-project" href="/tasks/project/{{ p }}">{{ p }}</a>
+    {% endfor %}
+  </nav>
+{% endif %}
+
+{# -- Task card macro -- #}
+{% macro task_card(task) %}
+  <article class="task-card">
+    <span class="task-title">
+      {% if task.source_item_id %}
+        <a href="/item/{{ task.source_item_id }}">{{ task.title }}</a>
+      {% else %}
+        {{ task.title }}
+      {% endif %}
+    </span>
+    <div class="task-meta">
+      <span class="priority-dot {{ task.priority or 'normal' }}"
+            title="{{ task.priority or 'normal' }} priority"></span>
+      {% if task.due_at %}
+        {% set due_str = task.due_at[:16].replace('T', ' ') %}
+        {% if task.id in (overdue | map(attribute='id') | list) %}
+          <span class="task-due overdue">{{ due_str }}</span>
+        {% else %}
+          <span class="task-due">{{ due_str }}</span>
+        {% endif %}
+      {% endif %}
+      {% if task.project %}
+        <a class="task-project" href="/tasks/project/{{ task.project }}">{{ task.project }}</a>
+      {% endif %}
+      {% if task.snoozed_until %}
+        <span>until {{ task.snoozed_until[:16].replace('T', ' ') }}</span>
+      {% endif %}
+    </div>
+    <div class="task-actions">
+      <form method="post" action="/tasks/{{ task.id }}/done">
+        <button type="submit" class="btn-done">Done</button>
+      </form>
+      <form method="post" action="/tasks/{{ task.id }}/snooze">
+        <button type="submit" class="btn-snooze">Snooze</button>
+      </form>
+      <form method="post" action="/tasks/{{ task.id }}/delete"
+            onsubmit="return confirm('Delete this task?')">
+        <button type="submit" class="btn-delete">Delete</button>
+      </form>
+    </div>
+  </article>
+{% endmacro %}
+
+{# -- Kanban columns -- #}
+<div class="task-columns">
+  <section class="task-column">
+    <h2 class="overdue">Overdue ({{ overdue|length }})</h2>
+    {% for task in overdue %}
+      {{ task_card(task) }}
+    {% else %}
+      <p class="empty-state" style="padding: 1rem; font-size: .9rem;">None</p>
+    {% endfor %}
+  </section>
+
+  <section class="task-column">
+    <h2>Today &amp; Upcoming ({{ upcoming|length }})</h2>
+    {% for task in upcoming %}
+      {{ task_card(task) }}
+    {% else %}
+      <p class="empty-state" style="padding: 1rem; font-size: .9rem;">None</p>
+    {% endfor %}
+  </section>
+
+  <section class="task-column">
+    <h2>Undated ({{ undated|length }})</h2>
+    {% for task in undated %}
+      {{ task_card(task) }}
+    {% else %}
+      <p class="empty-state" style="padding: 1rem; font-size: .9rem;">None</p>
+    {% endfor %}
+  </section>
+</div>
+
+{# -- Snoozed section -- #}
+{% if snoozed %}
+  <section class="task-column snoozed-section" style="margin-top: 1.5rem;">
+    <h2>Snoozed ({{ snoozed|length }})</h2>
+    {% for task in snoozed %}
+      {{ task_card(task) }}
+    {% endfor %}
+  </section>
+{% endif %}
+
+{# -- Truly empty state -- #}
+{% if not overdue and not upcoming and not undated and not snoozed %}
+  <p class="empty-state">No tasks. Add one above.</p>
+{% endif %}
+
+{% endblock %}

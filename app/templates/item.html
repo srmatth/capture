@@ -8,6 +8,11 @@
     <dt>Path</dt><dd>
       <a href="/browse?path={{ row.path }}">{{ row.path or 'inbox' }}</a>
     </dd>
+    {% if row.reading_book_id %}
+    <dt>From</dt><dd>
+      <a href="http://reading.matthewshome/books/{{ row.reading_book_id }}">{{ row.reading_book_title or 'Unknown book' }}</a>
+    </dd>
+    {% endif %}
     <dt>Uploaded</dt><dd>{{ row.uploaded_at[:19] if row.uploaded_at else 'n/a' }}</dd>
     {% if row.date_of_content %}
       <dt>Content date</dt><dd>{{ row.date_of_content }}</dd>
