@@ -27,7 +27,7 @@ TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app = FastAPI(title="matthewshome capture")
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https?://.*\.matthewshome.*",
+    allow_origin_regex=r"https?://.*\.(matthewshome|ts\.net).*",
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
