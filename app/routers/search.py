@@ -68,6 +68,28 @@ async def pipeline_status(request: Request):
     )
 
 
+# ---------- item transcript API ----------
+
+
+@router.get("/api/item/{item_id}/transcript")
+async def item_transcript_api(item_id: str):
+    """Return an item's transcript as JSON. Used by the reading app
+    to display book excerpts inline without navigating to capture."""
+    row = get_item(item_id)
+    if row is None or row.get("deleted_at"):
+        return {"transcript": None, "title": None}
+    transcript = ""
+    if row["transcript_path"]:
+        t_path = CONFIG.data_root / row["transcript_path"]
+        if t_path.exists():
+            transcript = t_path.read_text()
+    return {
+        "transcript": transcript,
+        "title": row.get("title"),
+        "status": row.get("status"),
+    }
+
+
 # ---------- landing ----------
 
 

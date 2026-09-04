@@ -195,7 +195,7 @@
 
 {# Lightbox overlay #}
 {% if attachments %}
-<div id="lightbox" class="lightbox" hidden onclick="if(event.target===this)closeLightbox()">
+<div id="lightbox" class="lightbox" onclick="if(event.target===this)closeLightbox()">
   <button class="lightbox-close" onclick="closeLightbox()">×</button>
   <button class="lightbox-prev" onclick="lightboxNav(-1)">‹</button>
   <img id="lightboxImg" class="lightbox-img" alt="">
@@ -210,9 +210,9 @@
     idx = i;
     document.getElementById('lightboxImg').src = urls[idx];
     document.getElementById('lightboxCounter').textContent = (idx+1) + ' / ' + urls.length;
-    document.getElementById('lightbox').hidden = false;
+    document.getElementById('lightbox').classList.add('open');
   };
-  window.closeLightbox = function() { document.getElementById('lightbox').hidden = true; };
+  window.closeLightbox = function() { document.getElementById('lightbox').classList.remove('open'); };
   window.lightboxNav = function(d) {
     idx = (idx + d + urls.length) % urls.length;
     document.getElementById('lightboxImg').src = urls[idx];
