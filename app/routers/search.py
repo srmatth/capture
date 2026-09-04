@@ -68,7 +68,22 @@ async def pipeline_status(request: Request):
     )
 
 
-# ---------- item transcript API ----------
+# ---------- item API ----------
+
+
+@router.get("/api/items/alive")
+async def items_alive(ids: str = ""):
+    """Check which item IDs are alive (not soft-deleted). Used by the
+    reading app to filter out stale capture links. Accepts comma-separated IDs."""
+    if not ids:
+        return {"alive": []}
+    id_list = [i.strip() for i in ids.split(",") if i.strip()]
+    alive = []
+    for item_id in id_list:
+        row = get_item(item_id)
+        if row and not row.get("deleted_at"):
+            alive.append(item_id)
+    return {"alive": alive}
 
 
 @router.get("/api/item/{item_id}/transcript")

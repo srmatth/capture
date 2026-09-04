@@ -366,7 +366,7 @@ a.tag:hover { color: var(--fg); border-color: var(--fg); }
 }
 .lightbox-img { max-width: 90vw; max-height: 85vh; object-fit: contain; border-radius: 4px; }
 .lightbox-close {
-  position: absolute; top: 12px; right: 16px;
+  position: absolute; top: calc(12px + env(safe-area-inset-top, 20px)); right: 16px;
   font-size: 2rem; color: #fff; background: none; border: none; cursor: pointer;
   min-width: 44px; min-height: 44px;
 }
